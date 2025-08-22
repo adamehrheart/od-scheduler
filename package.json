@@ -1,0 +1,35 @@
+{
+  "name": "od-scheduler",
+  "version": "1.0.0",
+  "description": "Open Dealer Scheduler Service - Manages data pull scheduling and monitoring",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "tsc",
+    "deploy": "vercel --prod",
+    "test": "vitest run",
+    "test:scheduler": "node scripts/test-scheduler.mjs",
+    "lint": "eslint src/**/*.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.55.0",
+    "dotenv": "^16.4.7",
+    "node-cron": "^3.0.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "@types/node-cron": "^3.0.11",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vercel/node": "^3.0.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": "^18.20.2 || >=20.9.0"
+  }
+}
