@@ -95,9 +95,9 @@ export class HomeNetJobRunner {
     // Build the SOAP transformer URL
     const url = new URL('/v1/transform/homenet', soapTransformerUrl)
     
-    // Add query parameters
-    url.searchParams.set('dataApi', process.env.OD_DATA_API_URL || 'https://od-data-api.vercel.app')
-    url.searchParams.set('bearer', process.env.OD_BEARER_TOKEN || '')
+    // Add date filter for incremental updates (optional)
+    const updatedSince = process.env.OD_UPDATED_SINCE || '2025-01-01T00:00:00Z'
+    url.searchParams.set('updatedSince', updatedSince)
 
     logInfo(`Fetching vehicles from HomeNet SOAP API`, {
       url: url.toString(),
@@ -134,18 +134,19 @@ export class HomeNetJobRunner {
       return { processed: 0 }
     }
 
-    const dataApiUrl = process.env.OD_DATA_API_URL || 'https://od-data-api.vercel.app'
-    const apiKey = process.env.OD_API_KEY_SECRET || ''
+          const dataApiUrl = process.env.OD_DATA_API_URL || 'https://od-data-api.vercel.app'
+      const apiKey = process.env.OD_API_KEY_SECRET || ''
 
     logInfo(`Posting ${vehicles.length} vehicles to Data API`)
 
-    const response = await fetch(`${dataApiUrl}/v1/vehicles/batch`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': apiKey,
-        'X-Dealer-ID': this.job.dealer_id
-      },
+                const response = await fetch(`${dataApiUrl}/v1/vehicles/batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+          'X-Dealer-ID': this.job.dealer_id,
+          'x-vercel-protection-bypass': 'ajCgGGKZVrjpA7CY5f1tWFNAuI1VihS6'
+        },
       body: JSON.stringify({
         vehicles,
         source: 'homenet',
@@ -200,5 +201,45 @@ export class HomeNetJobRunner {
       return error
     }
     return JSON.stringify(error)
+  }
+}
+
+/**
+ * Test function for HomeNet integration
+ * This is used for testing purposes only
+ */
+export default async function runHomeNetJob(params: {
+  dealerId: string
+  rooftopId: string
+  integrationToken: string
+}): Promise<any> {
+  console.log('🧪 Testing HomeNet integration...');
+  
+  // Create a mock job for testing
+  const mockJob: any = {
+    id: 'test_job',
+    dealer_id: params.dealerId,
+    dealer_name: 'RSM Honda',
+    platform: 'homenet',
+    environment: 'test'
+  };
+
+  try {
+    const runner = new HomeNetJobRunner(mockJob);
+    const result = await runner.execute();
+    
+    return {
+      success: true,
+      execution: result,
+      vehicles: [], // Would be populated in real execution
+      errors: []
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      vehicles: [],
+      errors: [error instanceof Error ? error.message : String(error)]
+    };
   }
 }

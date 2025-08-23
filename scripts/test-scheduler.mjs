@@ -7,8 +7,8 @@
  * without requiring a full deployment.
  */
 
-import { SchedulerService } from '../src/scheduler.js'
-import { logInfo, logSuccess, logError } from '../src/utils.js'
+import { SchedulerService } from '../dist/src/scheduler.js'
+import { logInfo, logSuccess, logError } from '../dist/src/utils.js'
 
 async function testScheduler() {
   console.log('🧪 Testing Open Dealer Scheduler Service...\n')

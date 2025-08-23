@@ -132,60 +132,41 @@ export class DealerComJobRunner {
   }
 
   /**
-   * Try to fetch vehicles using scraping fallback
+   * Try scraping fallback to get vehicle URLs
    */
   private async tryScrapingFallback(): Promise<any[]> {
-    const dealerUrl = this.job.config.api_endpoint
-    if (!dealerUrl) {
-      logInfo('No dealer URL configured for scraping fallback')
-      return []
-    }
-
+    const dealerUrl = this.job.config.api_endpoint?.replace('/api/inventory', '') || 'https://www.rsmhonda.com'
+    
     logInfo(`Attempting scraping fallback`, {
       dealer_url: dealerUrl
     })
 
     try {
-      // This would integrate with your existing Apify scraper
-      // For now, we'll simulate the scraping process
-      const apifyApiUrl = process.env.APIFY_API_URL
-      const apifyToken = process.env.APIFY_TOKEN
-
-      if (!apifyApiUrl || !apifyToken) {
-        logWarning('Apify configuration missing, cannot perform scraping')
-        return []
-      }
-
-      // Trigger Apify actor for scraping
-      const response = await fetch(`${apifyApiUrl}/acts/your-dealer-com-scraper/runs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apifyToken}`
-        },
-        body: JSON.stringify({
-          input: {
-            dealerUrl,
-            dealerId: this.job.dealer_id,
-            platform: 'dealer.com'
-          }
-        })
-      })
-
+      // Simple scraping to get vehicle detail URLs
+      const response = await fetch(dealerUrl)
       if (!response.ok) {
-        throw new Error(`Apify scraping failed: ${response.status} ${response.statusText}`)
+        throw new Error(`Failed to fetch dealer website: ${response.status}`)
       }
 
-      const result = await response.json() as any
+      const html = await response.text()
       
-      // Wait for the scraping to complete and get results
-      // This is a simplified version - you'd need to implement proper polling
-      logInfo('Apify scraping job triggered', {
-        run_id: result.data?.id
-      })
+      // Extract vehicle detail URLs from the HTML
+      // This is a simplified approach - in production you'd use a proper HTML parser
+      const vehicleUrls = this.extractVehicleUrls(html, dealerUrl)
+      
+      logInfo(`Found ${vehicleUrls.length} vehicle URLs from scraping`)
+      
+      // Convert URLs to vehicle objects with dealerurl field
+      const vehicles = vehicleUrls.map((url, index) => ({
+        vin: `SCRAPED_${index + 1}`, // Placeholder VIN
+        make: 'Honda', // Default make for RSM Honda
+        model: 'Vehicle',
+        year: 2024,
+        dealerurl: url,
+        source: 'scrape'
+      }))
 
-      // For now, return empty array as placeholder
-      return []
+      return vehicles
 
     } catch (error) {
       logWarning('Scraping fallback failed', {
@@ -193,6 +174,43 @@ export class DealerComJobRunner {
       })
       return []
     }
+  }
+
+  /**
+   * Extract vehicle detail URLs from HTML
+   */
+  private extractVehicleUrls(html: string, baseUrl: string): string[] {
+    const urls: string[] = []
+    
+    // Look for common patterns in dealer websites
+    const patterns = [
+      /href=["']([^"']*\/inventory\/[^"']*\.html?)["']/gi,
+      /href=["']([^"']*\/vehicles\/[^"']*)["']/gi,
+      /href=["']([^"']*\/cars\/[^"']*)["']/gi,
+      /href=["']([^"']*\/detail\/[^"']*)["']/gi
+    ]
+
+    for (const pattern of patterns) {
+      let match
+      while ((match = pattern.exec(html)) !== null) {
+        let url = match[1]
+        
+        // Convert relative URLs to absolute
+        if (url.startsWith('/')) {
+          url = `${baseUrl}${url}`
+        } else if (!url.startsWith('http')) {
+          url = `${baseUrl}/${url}`
+        }
+        
+        // Only include URLs from the same domain
+        if (url.includes(baseUrl.replace('https://', '').replace('http://', ''))) {
+          urls.push(url)
+        }
+      }
+    }
+
+    // Remove duplicates and limit to reasonable number
+    return [...new Set(urls)].slice(0, 50)
   }
 
   /**
