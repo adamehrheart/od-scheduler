@@ -1,5 +1,6 @@
 import type { ScheduledJob, JobExecution } from '../types.js'
 import { logInfo, logSuccess, logError, createPerformanceTimer } from '../utils.js'
+import { env } from '../env.js'
 
 /**
  * HomeNet Job Runner
@@ -84,9 +85,9 @@ export class HomeNetJobRunner {
    * Fetch vehicles from HomeNet SOAP API
    */
   private async fetchVehiclesFromHomeNet(): Promise<any[]> {
-    const soapTransformerUrl = process.env.OD_SOAP_TRANSFORMER_URL || 'https://od-soap-transformer.vercel.app'
-    const integrationToken = process.env.OD_HOMENET_INTEGRATION_TOKEN
-    const rooftopCollection = process.env.OD_HOMENET_ROOFTOP_COLLECTION
+    const soapTransformerUrl = env.OD_SOAP_TRANSFORMER_URL
+    const integrationToken = env.OD_HOMENET_INTEGRATION_TOKEN
+    const rooftopCollection = env.OD_HOMENET_ROOFTOP_COLLECTION
 
     if (!integrationToken || !rooftopCollection) {
       throw new Error('Missing HomeNet configuration: OD_HOMENET_INTEGRATION_TOKEN or OD_HOMENET_ROOFTOP_COLLECTION')
@@ -96,7 +97,7 @@ export class HomeNetJobRunner {
     const url = new URL('/v1/transform/homenet', soapTransformerUrl)
     
     // Add date filter for incremental updates (optional)
-    const updatedSince = process.env.OD_UPDATED_SINCE || '2025-01-01T00:00:00Z'
+    const updatedSince = env.OD_UPDATED_SINCE || '2025-01-01T00:00:00Z'
     url.searchParams.set('updatedSince', updatedSince)
 
     logInfo(`Fetching vehicles from HomeNet SOAP API`, {
@@ -108,7 +109,7 @@ export class HomeNetJobRunner {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OD_BEARER_TOKEN || ''}`
+        'Authorization': `Bearer ${env.OD_BEARER_TOKEN || ''}`
       }
     })
 
@@ -134,8 +135,8 @@ export class HomeNetJobRunner {
       return { processed: 0 }
     }
 
-          const dataApiUrl = process.env.OD_DATA_API_URL || 'https://od-data-api.vercel.app'
-      const apiKey = process.env.OD_API_KEY_SECRET || ''
+          const dataApiUrl = env.OD_DATA_API_URL
+      const apiKey = env.OD_API_KEY_SECRET
 
     logInfo(`Posting ${vehicles.length} vehicles to Data API`)
 

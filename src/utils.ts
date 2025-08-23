@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { env } from './env.js'
 import type { ScheduledJob, JobExecution } from './types.js'
 
 // ============================================================================
@@ -30,14 +31,7 @@ export function logError(message: string, error?: any) {
 // ============================================================================
 
 export function getSupabaseClient() {
-  const supabaseUrl = process.env.OD_SUPABASE_URL
-  const supabaseKey = process.env.OD_SUPABASE_SERVICE_ROLE
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Missing OD_SUPABASE_URL or OD_SUPABASE_SERVICE_ROLE environment variables')
-  }
-
-  return createClient(supabaseUrl, supabaseKey)
+  return createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE)
 }
 
 // ============================================================================
