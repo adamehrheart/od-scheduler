@@ -5,7 +5,8 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "npm run build && node dist/src/dev-server.js",
+    "dev:vercel": "vercel dev",
     "build": "tsc",
     "deploy": "vercel --prod",
     "test": "vitest run",
@@ -16,11 +17,12 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.55.0",
     "dotenv": "^16.4.7",
+    "fast-xml-parser": "^5.2.5",
     "node-cron": "^3.0.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^22.5.4",
+    "@types/node": "^22.17.2",
     "@types/node-cron": "^3.0.11",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",

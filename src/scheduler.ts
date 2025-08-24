@@ -2,6 +2,7 @@ import { getSupabaseClient, shouldRunJob, calculateNextRun, logInfo, logSuccess,
 import { HomeNetJobRunner } from './jobs/homenet.js'
 import { DealerComJobRunner } from './jobs/dealer-com.js'
 import { processUrlShorteningJobs } from './jobs/url-shortening.js'
+import { processSitemapJobs } from './jobs/sitemap-processor.js'
 import type { ScheduledJob, JobExecution, JobResult, RunJobsRequest, RunJobsResponse } from './types.js'
 
 /**
@@ -18,7 +19,7 @@ export class SchedulerService {
    */
   async runJobs(request: RunJobsRequest = {}): Promise<RunJobsResponse> {
     const timer = createPerformanceTimer()
-    
+
     try {
       logInfo('Starting scheduled job execution', request)
 
@@ -71,7 +72,7 @@ export class SchedulerService {
 
     } catch (error) {
       logError('Scheduled job execution failed', error)
-      
+
       return {
         success: false,
         jobs_executed: 0,
@@ -117,7 +118,7 @@ export class SchedulerService {
 
         // Get platforms for this dealer
         const platforms = dealer.platforms || []
-        
+
         for (const platform of platforms) {
           // Filter by platform if specified
           if (request.platform && platform !== request.platform) {
@@ -145,7 +146,7 @@ export class SchedulerService {
    */
   private createJobFromDealer(dealer: any, platform: string): ScheduledJob | null {
     const now = new Date()
-    
+
     // Determine schedule based on platform
     let schedule: ScheduledJob['schedule'] = 'daily'
     switch (platform) {
@@ -196,15 +197,15 @@ export class SchedulerService {
   private async executeJobs(jobs: ScheduledJob[]): Promise<JobResult[]> {
     const results: JobResult[] = []
     const concurrencyLimit = 5 // Execute max 5 jobs simultaneously
-    
+
     // Process jobs in batches
     for (let i = 0; i < jobs.length; i += concurrencyLimit) {
       const batch = jobs.slice(i, i + concurrencyLimit)
-      
+
       const batchResults = await Promise.allSettled(
         batch.map(job => this.executeJob(job))
       )
-      
+
       // Convert Promise.allSettled results to JobResult[]
       for (let j = 0; j < batch.length; j++) {
         const result = batchResults[j]
@@ -256,12 +257,12 @@ export class SchedulerService {
           const homenetRunner = new HomeNetJobRunner(job)
           execution = await homenetRunner.execute()
           break
-          
+
         case 'dealer.com':
           const dealerComRunner = new DealerComJobRunner(job)
           execution = await dealerComRunner.execute()
           break
-          
+
         default:
           throw new Error(`Unsupported platform: ${job.platform}`)
       }
@@ -275,7 +276,7 @@ export class SchedulerService {
 
     } catch (error) {
       logError(`Job execution failed for ${job.dealer_name} (${job.platform})`, error)
-      
+
       return {
         job,
         execution: {
@@ -309,7 +310,7 @@ export class SchedulerService {
     try {
       // Store job executions in database
       const executions = results.map(r => r.execution)
-      
+
       const { error } = await this.supabase
         .from('job_executions')
         .insert(executions)
@@ -335,24 +336,61 @@ export class SchedulerService {
     errors: string[];
   }> {
     const timer = createPerformanceTimer()
-    
+
     try {
       logInfo('Starting URL shortening job processing', { maxJobs })
-      
+
       const result = await processUrlShorteningJobs(maxJobs)
-      
+
       logSuccess('URL shortening job processing completed', {
         processed: result.processed,
         success: result.success,
         failed: result.failed,
         execution_time_ms: timer.getDurationMs()
       })
-      
+
       return result
-      
+
     } catch (error) {
       logError('URL shortening job processing failed', error)
-      
+
+      return {
+        processed: 0,
+        success: 0,
+        failed: 1,
+        errors: [error instanceof Error ? error.message : String(error)]
+      }
+    }
+  }
+
+  /**
+   * Process sitemap jobs from the queue
+   */
+  async processSitemapJobs(maxJobs: number = 10): Promise<{
+    processed: number;
+    success: number;
+    failed: number;
+    errors: string[];
+  }> {
+    const timer = createPerformanceTimer()
+
+    try {
+      logInfo('Starting sitemap job processing', { maxJobs })
+
+      const result = await processSitemapJobs(maxJobs)
+
+      logSuccess('Sitemap job processing completed', {
+        processed: result.processed,
+        success: result.success,
+        failed: result.failed,
+        execution_time_ms: timer.getDurationMs()
+      })
+
+      return result
+
+    } catch (error) {
+      logError('Sitemap job processing failed', error)
+
       return {
         processed: 0,
         success: 0,

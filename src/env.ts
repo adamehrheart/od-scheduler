@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const EnvSchema = z.object({
-  NODE_ENV: z.enum(['development','test','production']).default('development'),
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
   // Supabase
   OD_SUPABASE_URL: z.string().url(),
