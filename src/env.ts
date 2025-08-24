@@ -27,6 +27,9 @@ export const EnvSchema = z.object({
   }, {
     message: 'OD_UPDATED_SINCE must be a valid date string (ISO format recommended: YYYY-MM-DDTHH:mm:ssZ)'
   }),
+
+  // Rebrandly
+  OD_REBRANDLY_API_KEY: z.string().min(8).optional(),
 })
 
 export type AppEnv = z.infer<typeof EnvSchema>

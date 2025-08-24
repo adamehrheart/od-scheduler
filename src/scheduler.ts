@@ -1,6 +1,7 @@
 import { getSupabaseClient, shouldRunJob, calculateNextRun, logInfo, logSuccess, logError, createPerformanceTimer } from './utils.js'
 import { HomeNetJobRunner } from './jobs/homenet.js'
 import { DealerComJobRunner } from './jobs/dealer-com.js'
+import { processUrlShorteningJobs } from './jobs/url-shortening.js'
 import type { ScheduledJob, JobExecution, JobResult, RunJobsRequest, RunJobsResponse } from './types.js'
 
 /**
@@ -321,6 +322,43 @@ export class SchedulerService {
 
     } catch (error) {
       logError('Failed to update job statuses', error)
+    }
+  }
+
+  /**
+   * Process URL shortening jobs from the queue
+   */
+  async processUrlShorteningJobs(maxJobs: number = 10): Promise<{
+    processed: number;
+    success: number;
+    failed: number;
+    errors: string[];
+  }> {
+    const timer = createPerformanceTimer()
+    
+    try {
+      logInfo('Starting URL shortening job processing', { maxJobs })
+      
+      const result = await processUrlShorteningJobs(maxJobs)
+      
+      logSuccess('URL shortening job processing completed', {
+        processed: result.processed,
+        success: result.success,
+        failed: result.failed,
+        execution_time_ms: timer.getDurationMs()
+      })
+      
+      return result
+      
+    } catch (error) {
+      logError('URL shortening job processing failed', error)
+      
+      return {
+        processed: 0,
+        success: 0,
+        failed: 1,
+        errors: [error instanceof Error ? error.message : String(error)]
+      }
     }
   }
 }
