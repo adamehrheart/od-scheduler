@@ -35,8 +35,8 @@ async function comprehensiveVehicleCheck() {
         // Get vehicles with dealer URLs
         const { data: vehiclesWithUrls, error: withUrlsError } = await supabase
             .from('vehicles')
-            .select('vin, dealerurl, short_url, short_url_status, short_url_attempts')
-            .not('dealerurl', 'is', null);
+            .select('vin, dealer_page_url, short_url, short_url_status, short_url_attempts')
+            .not('dealer_page_url', 'is', null);
 
         if (withUrlsError) {
             throw new Error(`Failed to get vehicles with URLs: ${withUrlsError.message}`);
@@ -47,8 +47,8 @@ async function comprehensiveVehicleCheck() {
         // Get vehicles without dealer URLs
         const { data: vehiclesWithoutUrls, error: withoutUrlsError } = await supabase
             .from('vehicles')
-            .select('vin, dealerurl, short_url, short_url_status')
-            .is('dealerurl', null);
+            .select('vin, dealer_page_url, short_url, short_url_status')
+            .is('dealer_page_url', null);
 
         if (withoutUrlsError) {
             throw new Error(`Failed to get vehicles without URLs: ${withoutUrlsError.message}`);
@@ -59,7 +59,7 @@ async function comprehensiveVehicleCheck() {
         // Get vehicles with short URLs
         const { data: vehiclesWithShortUrls, error: withShortUrlsError } = await supabase
             .from('vehicles')
-            .select('vin, dealerurl, short_url, short_url_status')
+            .select('vin, dealer_page_url, short_url, short_url_status')
             .not('short_url', 'is', null);
 
         if (withShortUrlsError) {
@@ -71,7 +71,7 @@ async function comprehensiveVehicleCheck() {
         // Get vehicles with pending short URL status
         const { data: vehiclesPending, error: pendingError } = await supabase
             .from('vehicles')
-            .select('vin, dealerurl, short_url_status, short_url_attempts')
+            .select('vin, dealer_page_url, short_url_status, short_url_attempts')
             .eq('short_url_status', 'pending');
 
         if (pendingError) {
@@ -83,7 +83,7 @@ async function comprehensiveVehicleCheck() {
         // Get vehicles with processing short URL status
         const { data: vehiclesProcessing, error: processingError } = await supabase
             .from('vehicles')
-            .select('vin, dealerurl, short_url_status, short_url_attempts')
+            .select('vin, dealer_page_url, short_url_status, short_url_attempts')
             .eq('short_url_status', 'processing');
 
         if (processingError) {
@@ -95,7 +95,7 @@ async function comprehensiveVehicleCheck() {
         // Get vehicles with completed short URL status
         const { data: vehiclesCompleted, error: completedError } = await supabase
             .from('vehicles')
-            .select('vin, dealerurl, short_url, short_url_status')
+            .select('vin, dealer_page_url, short_url, short_url_status')
             .eq('short_url_status', 'completed');
 
         if (completedError) {
@@ -107,7 +107,7 @@ async function comprehensiveVehicleCheck() {
         // Get vehicles with failed short URL status
         const { data: vehiclesFailed, error: failedError } = await supabase
             .from('vehicles')
-            .select('vin, dealerurl, short_url_status, short_url_attempts')
+            .select('vin, dealer_page_url, short_url_status, short_url_attempts')
             .eq('short_url_status', 'failed');
 
         if (failedError) {
@@ -118,7 +118,7 @@ async function comprehensiveVehicleCheck() {
 
         // Show some examples of each category
         console.log('\n📋 Examples:');
-        
+
         if (vehiclesWithUrls && vehiclesWithUrls.length > 0) {
             console.log('\n🔗 Sample vehicles with dealer URLs:');
             vehiclesWithUrls.slice(0, 5).forEach(vehicle => {

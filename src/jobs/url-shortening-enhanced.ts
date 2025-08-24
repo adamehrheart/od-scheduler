@@ -43,6 +43,7 @@ interface UrlShorteningJob {
             medium: string;
             source: string;
         };
+        skip_url_shortening?: boolean;
     };
 }
 
@@ -53,6 +54,7 @@ interface ShortLinkResult {
     error?: string;
     slashtag?: string;
     attempts?: number;
+    message?: string;
 }
 
 /**
@@ -261,7 +263,23 @@ async function checkExistingShortUrl(dealerId: string, vin: string): Promise<str
  */
 async function processUrlShorteningJob(job: UrlShorteningJob): Promise<ShortLinkResult> {
     const { payload } = job;
-    const { dealer_id, vin, dealerurl, utm } = payload;
+    const { dealer_id, vin, dealerurl, utm, skip_url_shortening } = payload;
+
+    // Skip URL shortening if flag is set
+    if (skip_url_shortening) {
+        console.log('URL shortening skipped due to skip_url_shortening flag', {
+            jobId: job.id,
+            dealerId: dealer_id,
+            vin: vin
+        });
+
+        return {
+            success: true,
+            shortUrl: '',
+            slashtag: '',
+            message: 'URL shortening skipped'
+        };
+    }
 
     console.log('Processing URL shortening job', {
         jobId: job.id,

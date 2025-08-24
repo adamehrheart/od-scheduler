@@ -57,5 +57,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 // Vercel cron configuration
 export const config = {
-    runtime: 'nodejs18.x',
+    runtime: 'nodejs',
 }

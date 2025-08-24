@@ -11,8 +11,17 @@
 
 import { createClient } from '@supabase/supabase-js';
 import * as cheerio from 'cheerio';
-import { Vehicle, normalizeVehicleValues } from '@adamehrheart/schema';
+// import { Vehicle, normalizeVehicleValues } from '@adamehrheart/schema';
 import { executeJobWithErrorHandling, EnhancedErrorHandler } from './enhanced-error-handling.js';
+
+interface Vehicle {
+  vin: string;
+  make?: string;
+  model?: string;
+  year?: string;
+  trim?: string;
+  [key: string]: any;
+}
 
 interface ProductDetailScrapingJob {
   id: string;

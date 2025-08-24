@@ -21,10 +21,13 @@
     "queue:retry-failed": "doppler run -- node scripts/manage-job-queue.mjs retry-failed",
     "queue:cleanup": "doppler run -- node scripts/manage-job-queue.mjs cleanup-old",
     "queue:analyze-errors": "doppler run -- node scripts/analyze-job-errors.mjs",
-    "queue:test-enhanced": "doppler run -- node scripts/test-enhanced-jobs.mjs"
+    "queue:test-enhanced": "doppler run -- node scripts/test-enhanced-jobs.mjs",
+    "queue:test-multi-dealer": "doppler run -- node scripts/test-multi-dealer-dependency-manager.mjs",
+    "queue:test-rsm-honda": "doppler run -- node scripts/test-rsm-honda-multi-dealer.mjs",
+    "queue:process-multi-dealer": "doppler run -- node scripts/process-multi-dealer-jobs.mjs"
   },
   "dependencies": {
-    "@adamehrheart/schema": "file:../od-schema",
+    "@adamehrheart/schema": "^0.1.6",
     "@supabase/supabase-js": "^2.55.0",
     "@types/next": "^8.0.7",
     "cheerio": "^1.1.2",
