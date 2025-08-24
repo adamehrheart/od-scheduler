@@ -244,10 +244,6 @@ export class DealerComJobRunner {
     return { transmission, drivetrain, body_style };
   }
 
-    console.log(`✅ Mock scraping completed for ${mockEnrichedVehicles.length} vehicles`);
-    return mockEnrichedVehicles;
-  }
-
   private async updateVehiclesWithEnrichedData(enrichedVehicles: any[]): Promise<{ updated: number }> {
     if (enrichedVehicles.length === 0) {
       return { updated: 0 };
@@ -266,6 +262,11 @@ export class DealerComJobRunner {
 
         // Update vehicle with enriched data, focusing on dealer-specific fields
         const updateData = {
+          // Vehicle specifications (from Dealer.com scraping)
+          transmission: enrichedVehicle.transmission || null,
+          drivetrain: enrichedVehicle.drivetrain || null,
+          body_style: enrichedVehicle.body_style || null,
+
           // Pricing (dealer-specific)
           price: enrichedVehicle.price || null,
           monthly_payment: enrichedVehicle.monthly_payment || null,
