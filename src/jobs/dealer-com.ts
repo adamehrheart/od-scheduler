@@ -1,5 +1,6 @@
 import type { ScheduledJob, JobExecution } from '../types.js'
 import { logInfo, logSuccess, logError, createPerformanceTimer } from '../utils.js'
+import { env } from '../env.js';
 
 /**
  * Dealer.com Job Runner
@@ -222,8 +223,8 @@ export class DealerComJobRunner {
       return { processed: 0 }
     }
 
-    const dataApiUrl = process.env.OD_DATA_API_URL || 'https://od-data-api.vercel.app'
-    const apiKey = process.env.OD_API_KEY_SECRET || ''
+    const dataApiUrl = env.OD_DATA_API_URL
+    const apiKey = env.OD_API_KEY_SECRET
 
     logInfo(`Posting ${vehicles.length} vehicles to Data API`)
 

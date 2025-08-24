@@ -19,7 +19,14 @@ export const EnvSchema = z.object({
   // HomeNet
   OD_HOMENET_INTEGRATION_TOKEN: z.string().min(8).optional(),
   OD_HOMENET_ROOFTOP_COLLECTION: z.string().optional(),
-  OD_UPDATED_SINCE: z.string().optional(),
+  OD_UPDATED_SINCE: z.string().default('2025-01-01T00:00:00Z').refine((val) => {
+    // Basic validation for date format
+    if (!val) return false;
+    const date = new Date(val);
+    return !isNaN(date.getTime());
+  }, {
+    message: 'OD_UPDATED_SINCE must be a valid date string (ISO format recommended: YYYY-MM-DDTHH:mm:ssZ)'
+  }),
 })
 
 export type AppEnv = z.infer<typeof EnvSchema>
