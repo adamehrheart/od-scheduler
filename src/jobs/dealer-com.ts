@@ -103,57 +103,146 @@ export class DealerComJobRunner {
     // This will be replaced with actual Dealer.com scraping logic later
     console.log(`🔍 Mock Dealer.com scraping for ${existingVehicles.length} vehicles from ${dealer.name}`);
 
-    const mockEnrichedVehicles = existingVehicles.map((vehicle: any) => ({
-      vin: vehicle.vin,
-      // Pricing data
-      price: Math.floor(Math.random() * 5000) + 25000, // Mock dealer price
-      monthly_payment: Math.floor(Math.random() * 500) + 300, // Mock monthly payment
-      down_payment: Math.floor(Math.random() * 2000) + 1000, // Mock down payment
-      msrp: Math.floor(Math.random() * 3000) + 35000, // Mock MSRP
+    const mockEnrichedVehicles = existingVehicles.map((vehicle: any) => {
+      // Extract vehicle specifications from existing data
+      const extractedSpecs = this.extractVehicleSpecifications(vehicle);
 
-      // Availability and inventory
-      availability_status: 'In Stock',
-      days_in_inventory: Math.floor(Math.random() * 30) + 1,
-      offsite_location: Math.random() > 0.8, // 20% chance of being offsite
-      expected_arrival_date: Math.random() > 0.9 ? new Date(Date.now() + Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString() : null,
+      return {
+        vin: vehicle.vin,
+        // Pricing data
+        price: Math.floor(Math.random() * 5000) + 25000, // Mock dealer price
+        monthly_payment: Math.floor(Math.random() * 500) + 300, // Mock monthly payment
+        down_payment: Math.floor(Math.random() * 2000) + 1000, // Mock down payment
+        msrp: Math.floor(Math.random() * 3000) + 35000, // Mock MSRP
 
-      // Features and specifications
-      features: ['Bluetooth', 'Backup Camera', 'Navigation', 'Sunroof', 'Alloy Wheels'],
-      comfort_features: ['Heated Seats', 'Leather Interior', 'Dual Zone Climate Control', 'Power Driver Seat'],
-      safety_features: ['Blind Spot Monitoring', 'Lane Departure Warning', 'Forward Collision Warning', 'Rear Cross Traffic Alert'],
-      technology_features: ['Apple CarPlay', 'Android Auto', 'Wireless Charging', 'USB Ports'],
-      factory_options: ['Premium Audio System', 'Navigation Package', 'Technology Package'],
-      option_packages: ['Sport Package', 'Convenience Package'],
-      key_features: ['Low Mileage', 'One Owner', 'Clean Carfax', 'Certified Pre-Owned'],
+        // Vehicle specifications (extracted from existing data)
+        transmission: extractedSpecs.transmission,
+        drivetrain: extractedSpecs.drivetrain,
+        body_style: extractedSpecs.body_style,
 
-      // Vehicle details
-      condition: 'Used',
-      certified: Math.random() > 0.5, // 50% chance of being certified
-      vehicle_category: ['SUV', 'Sedan', 'Hatchback', 'Crossover'][Math.floor(Math.random() * 4)],
-      passenger_capacity: Math.floor(Math.random() * 3) + 5, // 5-7 passengers
+        // Availability and inventory
+        availability_status: 'In Stock',
+        days_in_inventory: Math.floor(Math.random() * 30) + 1,
+        offsite_location: Math.random() > 0.8, // 20% chance of being offsite
+        expected_arrival_date: Math.random() > 0.9 ? new Date(Date.now() + Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString() : null,
 
-      // Performance and efficiency
-      city_mpg: Math.floor(Math.random() * 10) + 20, // 20-30 mpg city
-      highway_mpg: Math.floor(Math.random() * 15) + 25, // 25-40 mpg highway
-      combined_mpg: Math.floor(Math.random() * 12) + 22, // 22-34 mpg combined
+        // Features and specifications
+        features: ['Bluetooth', 'Backup Camera', 'Navigation', 'Sunroof', 'Alloy Wheels'],
+        comfort_features: ['Heated Seats', 'Leather Interior', 'Dual Zone Climate Control', 'Power Driver Seat'],
+        safety_features: ['Blind Spot Monitoring', 'Lane Departure Warning', 'Forward Collision Warning', 'Rear Cross Traffic Alert'],
+        technology_features: ['Apple CarPlay', 'Android Auto', 'Wireless Charging', 'USB Ports'],
+        factory_options: ['Premium Audio System', 'Navigation Package', 'Technology Package'],
+        option_packages: ['Sport Package', 'Convenience Package'],
+        key_features: ['Low Mileage', 'One Owner', 'Clean Carfax', 'Certified Pre-Owned'],
 
-      // Engine specifications
-      engine_size: ['2.0L', '2.5L', '3.0L', '3.5L'][Math.floor(Math.random() * 4)],
-      engine_cylinder_count: [4, 6][Math.floor(Math.random() * 2)],
-      engine_specification: ['Turbocharged', 'Naturally Aspirated', 'Hybrid'][Math.floor(Math.random() * 3)],
+        // Vehicle details
+        condition: 'Used',
+        certified: Math.random() > 0.5, // 50% chance of being certified
+        vehicle_category: ['SUV', 'Sedan', 'Hatchback', 'Crossover'][Math.floor(Math.random() * 4)],
+        passenger_capacity: Math.floor(Math.random() * 3) + 5, // 5-7 passengers
 
-      // Dealer information
-      dealer_page_url: `https://${dealer.domain || 'example.com'}/inventory/${vehicle.vin}`,
-      dealer_highlights: 'Great deal! Low miles, excellent condition. One owner, clean history.',
-      incentives: ['$500 Cash Back', '0% APR Financing', 'Trade-in Bonus', 'Military Discount'],
-      financing_available: true,
-      warranty_details: 'Certified Pre-Owned Warranty - 7 years/100,000 miles powertrain coverage',
-      carfax_report_url: `https://www.carfax.com/vehicle/${vehicle.vin}`,
+        // Performance and efficiency
+        city_mpg: Math.floor(Math.random() * 10) + 20, // 20-30 mpg city
+        highway_mpg: Math.floor(Math.random() * 15) + 25, // 25-40 mpg highway
+        combined_mpg: Math.floor(Math.random() * 12) + 22, // 22-34 mpg combined
 
-      // Additional media
-      video_links: Math.random() > 0.7 ? [`https://${dealer.domain || 'example.com'}/videos/${vehicle.vin}.mp4`] : [],
-      action_buttons: ['Schedule Test Drive', 'Get Pre-Approved', 'Request More Info', 'Trade-In Value']
-    }));
+        // Engine specifications
+        engine_size: ['2.0L', '2.5L', '3.0L', '3.5L'][Math.floor(Math.random() * 4)],
+        engine_cylinder_count: [4, 6][Math.floor(Math.random() * 2)],
+        engine_specification: ['Turbocharged', 'Naturally Aspirated', 'Hybrid'][Math.floor(Math.random() * 3)],
+
+        // Dealer information
+        dealer_page_url: `https://${dealer.domain || 'example.com'}/inventory/${vehicle.vin}`,
+        dealer_highlights: 'Great deal! Low miles, excellent condition. One owner, clean history.',
+        incentives: ['$500 Cash Back', '0% APR Financing', 'Trade-in Bonus', 'Military Discount'],
+        financing_available: true,
+        warranty_details: 'Certified Pre-Owned Warranty - 7 years/100,000 miles powertrain coverage',
+        carfax_report_url: `https://www.carfax.com/vehicle/${vehicle.vin}`,
+
+        // Additional media
+        video_links: Math.random() > 0.7 ? [`https://${dealer.domain || 'example.com'}/videos/${vehicle.vin}.mp4`] : [],
+        action_buttons: ['Schedule Test Drive', 'Get Pre-Approved', 'Request More Info', 'Trade-In Value']
+      };
+    });
+
+    console.log(`✅ Mock scraping completed for ${mockEnrichedVehicles.length} vehicles`);
+    return mockEnrichedVehicles;
+  }
+
+  /**
+   * Extract vehicle specifications from existing vehicle data
+   * This simulates what real Dealer.com scraping would provide
+   */
+  private extractVehicleSpecifications(vehicle: any): { transmission: string | null, drivetrain: string | null, body_style: string | null } {
+    const { make, model, description, trim } = vehicle;
+
+    // Initialize with null values
+    let transmission: string | null = null;
+    let drivetrain: string | null = null;
+    let body_style: string | null = null;
+
+    // Extract body style from model name (most reliable)
+    if (model) {
+      const modelLower = model.toLowerCase();
+      if (modelLower.includes('sedan')) body_style = 'Sedan';
+      else if (modelLower.includes('suv')) body_style = 'SUV';
+      else if (modelLower.includes('hatchback')) body_style = 'Hatchback';
+      else if (modelLower.includes('wagon')) body_style = 'Wagon';
+      else if (modelLower.includes('coupe')) body_style = 'Coupe';
+      else if (modelLower.includes('convertible')) body_style = 'Convertible';
+      else if (modelLower.includes('pickup') || modelLower.includes('truck')) body_style = 'Truck';
+      else if (modelLower.includes('van')) body_style = 'Van';
+      else if (modelLower.includes('crossover')) body_style = 'Crossover';
+    }
+
+    // Extract transmission and drivetrain from description
+    if (description) {
+      const descLower = description.toLowerCase();
+
+      // Transmission patterns
+      if (descLower.includes('automatic') || descLower.includes('auto')) {
+        transmission = 'Automatic';
+      } else if (descLower.includes('manual') || descLower.includes('stick')) {
+        transmission = 'Manual';
+      } else if (descLower.includes('cvt')) {
+        transmission = 'CVT';
+      }
+
+      // Drivetrain patterns
+      if (descLower.includes('awd') || descLower.includes('all-wheel drive')) {
+        drivetrain = 'AWD';
+      } else if (descLower.includes('fwd') || descLower.includes('front-wheel drive')) {
+        drivetrain = 'FWD';
+      } else if (descLower.includes('rwd') || descLower.includes('rear-wheel drive')) {
+        drivetrain = 'RWD';
+      } else if (descLower.includes('4wd') || descLower.includes('four-wheel drive')) {
+        drivetrain = '4WD';
+      }
+    }
+
+    // Fallback logic based on make/model patterns
+    if (!transmission) {
+      if (make?.toLowerCase() === 'honda') {
+        // Honda typically uses CVT for most models
+        transmission = 'CVT';
+      } else if (make?.toLowerCase() === 'toyota') {
+        transmission = 'Automatic';
+      }
+    }
+
+    if (!drivetrain) {
+      if (make?.toLowerCase() === 'honda') {
+        // Honda typically FWD for sedans, AWD for SUVs
+        if (body_style === 'SUV') {
+          drivetrain = 'AWD';
+        } else {
+          drivetrain = 'FWD';
+        }
+      }
+    }
+
+    return { transmission, drivetrain, body_style };
+  }
 
     console.log(`✅ Mock scraping completed for ${mockEnrichedVehicles.length} vehicles`);
     return mockEnrichedVehicles;
@@ -164,7 +253,7 @@ export class DealerComJobRunner {
       return { updated: 0 };
     }
 
-    console.log(`🔄 Updating ${enrichedVehicles.length} vehicles with enriched data...`);
+    console.log(`🔄 Updating ${ enrichedVehicles.length } vehicles with enriched data...`);
 
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
@@ -173,7 +262,7 @@ export class DealerComJobRunner {
 
     for (const enrichedVehicle of enrichedVehicles) {
       try {
-        console.log(`  🔄 Updating vehicle ${enrichedVehicle.vin}...`);
+        console.log(`  🔄 Updating vehicle ${ enrichedVehicle.vin }...`);
 
         // Update vehicle with enriched data, focusing on dealer-specific fields
         const updateData = {
@@ -232,7 +321,7 @@ export class DealerComJobRunner {
           updated_at: new Date().toISOString()
         };
 
-        console.log(`    📝 Update data:`, updateData);
+        console.log(`    📝 Update data: `, updateData);
 
         const { error } = await supabase
           .from('vehicles')
@@ -241,18 +330,18 @@ export class DealerComJobRunner {
           .eq('vin', enrichedVehicle.vin);
 
         if (error) {
-          console.log(`    ❌ Failed to update vehicle ${enrichedVehicle.vin}:`, error.message);
+          console.log(`    ❌ Failed to update vehicle ${ enrichedVehicle.vin }: `, error.message);
         } else {
-          console.log(`    ✅ Successfully updated vehicle ${enrichedVehicle.vin}`);
+          console.log(`    ✅ Successfully updated vehicle ${ enrichedVehicle.vin } `);
           updatedCount++;
         }
 
       } catch (error) {
-        console.log(`    ❌ Error updating vehicle ${enrichedVehicle.vin}:`, error instanceof Error ? error.message : String(error));
+        console.log(`    ❌ Error updating vehicle ${ enrichedVehicle.vin }: `, error instanceof Error ? error.message : String(error));
       }
     }
 
-    console.log(`✅ Vehicle update complete: ${updatedCount}/${enrichedVehicles.length} vehicles updated`);
-    return { updated: updatedCount };
+    console.log(`✅ Vehicle update complete: ${ updatedCount }/${enrichedVehicles.length} vehicles updated`);
+return { updated: updatedCount };
   }
 }
