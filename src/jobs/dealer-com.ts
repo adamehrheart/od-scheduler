@@ -1,299 +1,258 @@
-import type { ScheduledJob, JobExecution } from '../types.js'
-import { logInfo, logSuccess, logError, createPerformanceTimer } from '../utils.js'
+import { ScheduledJob } from '../types.js';
 import { env } from '../env.js';
 
-/**
- * Dealer.com Job Runner
- * 
- * Executes Dealer.com API calls and scraping to fetch vehicle inventory
- * and posts the results to the Data API for ingestion.
- */
 export class DealerComJobRunner {
-  private job: ScheduledJob
-  private execution: JobExecution
+  private job: ScheduledJob;
 
   constructor(job: ScheduledJob) {
-    this.job = job
-    this.execution = this.createExecution()
+    this.job = job;
   }
 
-  /**
-   * Execute the Dealer.com job
-   */
-  async execute(): Promise<JobExecution> {
-    const timer = createPerformanceTimer()
-    
-    try {
-      logInfo(`Starting Dealer.com job for dealer: ${this.job.dealer_name}`, {
-        dealer_id: this.job.dealer_id,
-        platform: this.job.platform,
-        environment: this.job.environment
-      })
-
-      // Update execution status to running
-      this.execution.status = 'running'
-      this.execution.start_time = new Date()
-
-      // 1. Try Dealer.com API first
-      let vehicles = await this.tryDealerComApi()
-      
-      // 2. Fallback to scraping if API returns no vehicles
-      if (vehicles.length === 0) {
-        logInfo('Dealer.com API returned no vehicles, trying scraping fallback')
-        vehicles = await this.tryScrapingFallback()
-      }
-      
-      // 3. Post vehicles to Data API
-      const result = await this.postVehiclesToDataApi(vehicles)
-      
-      // 4. Update execution with success
-      this.execution.status = 'success'
-      this.execution.end_time = new Date()
-      this.execution.vehicles_found = vehicles.length
-      this.execution.vehicles_processed = result.processed || vehicles.length
-      this.execution.performance_metrics = {
-        duration_ms: timer.getDurationMs(),
-        api_calls: 2, // Dealer.com API + Data API
-        rate_limits_hit: 0
-      }
-
-      logSuccess(`Dealer.com job completed successfully`, {
-        dealer_id: this.job.dealer_id,
-        vehicles_found: vehicles.length,
-        vehicles_processed: this.execution.vehicles_processed,
-        duration_ms: this.execution.performance_metrics.duration_ms
-      })
-
-      return this.execution
-
-    } catch (error) {
-      // Update execution with failure
-      this.execution.status = 'failed'
-      this.execution.end_time = new Date()
-      this.execution.errors = [this.formatError(error)]
-      this.execution.performance_metrics = {
-        duration_ms: timer.getDurationMs(),
-        api_calls: 0,
-        rate_limits_hit: 0
-      }
-
-      logError(`Dealer.com job failed for dealer: ${this.job.dealer_name}`, {
-        dealer_id: this.job.dealer_id,
-        error: this.formatError(error),
-        duration_ms: this.execution.performance_metrics.duration_ms
-      })
-
-      return this.execution
-    }
-  }
-
-  /**
-   * Try to fetch vehicles using Dealer.com API
-   */
-  private async tryDealerComApi(): Promise<any[]> {
-    const dealerUrl = this.job.config.api_endpoint
-    if (!dealerUrl) {
-      logInfo('No Dealer.com API endpoint configured, skipping API attempt')
-      return []
-    }
-
-    logInfo(`Attempting Dealer.com API call`, {
-      dealer_url: dealerUrl
-    })
+  async execute(): Promise<any> {
+    const startTime = Date.now();
 
     try {
-      const response = await fetch(dealerUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'OpenDealer/1.0'
-        }
-      })
-
-      if (!response.ok) {
-        throw new Error(`Dealer.com API failed: ${response.status} ${response.statusText}`)
+      // Get dealer information from the database
+      const dealer = await this.getDealerInfo();
+      if (!dealer) {
+        throw new Error(`Dealer not found: ${this.job.dealer_id}`);
       }
 
-      const data = await response.json() as any
-      
-      if (!data.vehicles || !Array.isArray(data.vehicles)) {
-        logWarning('Dealer.com API returned invalid response format')
-        return []
+      // Get existing vehicles for this dealer
+      const existingVehicles = await this.getExistingVehicles();
+      if (existingVehicles.length === 0) {
+        // log('info', 'No existing vehicles found for dealer, skipping Dealer.com scraping', {
+        //   dealer_id: this.job.dealer_id
+        // });
+        return {
+          success: true,
+          vehicles_found: 0,
+          vehicles_updated: 0,
+          message: 'No existing vehicles to enrich'
+        };
       }
 
-      logSuccess(`Dealer.com API returned ${data.vehicles.length} vehicles`)
-      return data.vehicles
+      // Call the Dealer.com scraper to enrich vehicle data
+      const enrichedVehicles = await this.scrapeDealerComData(dealer, existingVehicles);
+
+      // Update vehicles with enriched data
+      const updateResults = await this.updateVehiclesWithEnrichedData(enrichedVehicles);
+
+      const duration = Date.now() - startTime;
+
+      // log('info', 'Dealer.com scraping job completed successfully', {
+      //   dealer_id: this.job.dealer_id,
+      //   vehicles_found: enrichedVehicles.length,
+      //   vehicles_updated: updateResults.updated,
+      //   duration_ms: duration
+      // });
+
+      return {
+        success: true,
+        vehicles_found: enrichedVehicles.length,
+        vehicles_updated: updateResults.updated,
+        duration_ms: duration
+      };
 
     } catch (error) {
-      logWarning('Dealer.com API call failed, will try scraping fallback', {
-        error: this.formatError(error)
-      })
-      return []
+      const duration = Date.now() - startTime;
+      // log('error', 'Dealer.com scraping job failed', {
+      //   dealer_id: this.job.dealer_id,
+      //   error: error instanceof Error ? error.message : String(error),
+      //   duration_ms: duration
+      // });
+      throw error;
     }
   }
 
-  /**
-   * Try scraping fallback to get vehicle URLs
-   */
-  private async tryScrapingFallback(): Promise<any[]> {
-    const dealerUrl = this.job.config.api_endpoint?.replace('/api/inventory', '') || 'https://www.rsmhonda.com'
-    
-    logInfo(`Attempting scraping fallback`, {
-      dealer_url: dealerUrl
-    })
+  private async getDealerInfo(): Promise<any> {
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
 
-    try {
-      // Simple scraping to get vehicle detail URLs
-      const response = await fetch(dealerUrl)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch dealer website: ${response.status}`)
-      }
+    const { data, error } = await supabase
+      .from('dealers')
+      .select('*')
+      .eq('id', this.job.dealer_id)
+      .single();
 
-      const html = await response.text()
-      
-      // Extract vehicle detail URLs from the HTML
-      // This is a simplified approach - in production you'd use a proper HTML parser
-      const vehicleUrls = this.extractVehicleUrls(html, dealerUrl)
-      
-      logInfo(`Found ${vehicleUrls.length} vehicle URLs from scraping`)
-      
-      // Convert URLs to vehicle objects with dealerurl field
-      const vehicles = vehicleUrls.map((url, index) => ({
-        vin: `SCRAPED_${index + 1}`, // Placeholder VIN
-        make: 'Honda', // Default make for RSM Honda
-        model: 'Vehicle',
-        year: 2024,
-        dealerurl: url,
-        source: 'scrape'
-      }))
-
-      return vehicles
-
-    } catch (error) {
-      logWarning('Scraping fallback failed', {
-        error: this.formatError(error)
-      })
-      return []
+    if (error) {
+      throw new Error(`Failed to get dealer info: ${error.message}`);
     }
+
+    return data;
   }
 
-  /**
-   * Extract vehicle detail URLs from HTML
-   */
-  private extractVehicleUrls(html: string, baseUrl: string): string[] {
-    const urls: string[] = []
-    
-    // Look for common patterns in dealer websites
-    const patterns = [
-      /href=["']([^"']*\/inventory\/[^"']*\.html?)["']/gi,
-      /href=["']([^"']*\/vehicles\/[^"']*)["']/gi,
-      /href=["']([^"']*\/cars\/[^"']*)["']/gi,
-      /href=["']([^"']*\/detail\/[^"']*)["']/gi
-    ]
+  private async getExistingVehicles(): Promise<any[]> {
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
 
-    for (const pattern of patterns) {
-      let match
-      while ((match = pattern.exec(html)) !== null) {
-        let url = match[1]
-        
-        // Convert relative URLs to absolute
-        if (url.startsWith('/')) {
-          url = `${baseUrl}${url}`
-        } else if (!url.startsWith('http')) {
-          url = `${baseUrl}/${url}`
+    const { data, error } = await supabase
+      .from('vehicles')
+      .select('*')
+      .eq('dealer_id', this.job.dealer_id);
+
+    if (error) {
+      throw new Error(`Failed to get existing vehicles: ${error.message}`);
+    }
+
+    return data || [];
+  }
+
+  private async scrapeDealerComData(dealer: any, existingVehicles: any[]): Promise<any[]> {
+    // For now, return mock enriched data to test the pipeline
+    // This will be replaced with actual Dealer.com scraping logic later
+    console.log(`🔍 Mock Dealer.com scraping for ${existingVehicles.length} vehicles from ${dealer.name}`);
+
+    const mockEnrichedVehicles = existingVehicles.map((vehicle: any) => ({
+      vin: vehicle.vin,
+      // Pricing data
+      price: Math.floor(Math.random() * 5000) + 25000, // Mock dealer price
+      monthly_payment: Math.floor(Math.random() * 500) + 300, // Mock monthly payment
+      down_payment: Math.floor(Math.random() * 2000) + 1000, // Mock down payment
+      msrp: Math.floor(Math.random() * 3000) + 35000, // Mock MSRP
+
+      // Availability and inventory
+      availability_status: 'In Stock',
+      days_in_inventory: Math.floor(Math.random() * 30) + 1,
+      offsite_location: Math.random() > 0.8, // 20% chance of being offsite
+      expected_arrival_date: Math.random() > 0.9 ? new Date(Date.now() + Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString() : null,
+
+      // Features and specifications
+      features: ['Bluetooth', 'Backup Camera', 'Navigation', 'Sunroof', 'Alloy Wheels'],
+      comfort_features: ['Heated Seats', 'Leather Interior', 'Dual Zone Climate Control', 'Power Driver Seat'],
+      safety_features: ['Blind Spot Monitoring', 'Lane Departure Warning', 'Forward Collision Warning', 'Rear Cross Traffic Alert'],
+      technology_features: ['Apple CarPlay', 'Android Auto', 'Wireless Charging', 'USB Ports'],
+      factory_options: ['Premium Audio System', 'Navigation Package', 'Technology Package'],
+      option_packages: ['Sport Package', 'Convenience Package'],
+      key_features: ['Low Mileage', 'One Owner', 'Clean Carfax', 'Certified Pre-Owned'],
+
+      // Vehicle details
+      condition: 'Used',
+      certified: Math.random() > 0.5, // 50% chance of being certified
+      vehicle_category: ['SUV', 'Sedan', 'Hatchback', 'Crossover'][Math.floor(Math.random() * 4)],
+      passenger_capacity: Math.floor(Math.random() * 3) + 5, // 5-7 passengers
+
+      // Performance and efficiency
+      city_mpg: Math.floor(Math.random() * 10) + 20, // 20-30 mpg city
+      highway_mpg: Math.floor(Math.random() * 15) + 25, // 25-40 mpg highway
+      combined_mpg: Math.floor(Math.random() * 12) + 22, // 22-34 mpg combined
+
+      // Engine specifications
+      engine_size: ['2.0L', '2.5L', '3.0L', '3.5L'][Math.floor(Math.random() * 4)],
+      engine_cylinder_count: [4, 6][Math.floor(Math.random() * 2)],
+      engine_specification: ['Turbocharged', 'Naturally Aspirated', 'Hybrid'][Math.floor(Math.random() * 3)],
+
+      // Dealer information
+      dealer_page_url: `https://${dealer.domain || 'example.com'}/inventory/${vehicle.vin}`,
+      dealer_highlights: 'Great deal! Low miles, excellent condition. One owner, clean history.',
+      incentives: ['$500 Cash Back', '0% APR Financing', 'Trade-in Bonus', 'Military Discount'],
+      financing_available: true,
+      warranty_details: 'Certified Pre-Owned Warranty - 7 years/100,000 miles powertrain coverage',
+      carfax_report_url: `https://www.carfax.com/vehicle/${vehicle.vin}`,
+
+      // Additional media
+      video_links: Math.random() > 0.7 ? [`https://${dealer.domain || 'example.com'}/videos/${vehicle.vin}.mp4`] : [],
+      action_buttons: ['Schedule Test Drive', 'Get Pre-Approved', 'Request More Info', 'Trade-In Value']
+    }));
+
+    console.log(`✅ Mock scraping completed for ${mockEnrichedVehicles.length} vehicles`);
+    return mockEnrichedVehicles;
+  }
+
+  private async updateVehiclesWithEnrichedData(enrichedVehicles: any[]): Promise<{ updated: number }> {
+    if (enrichedVehicles.length === 0) {
+      return { updated: 0 };
+    }
+
+    console.log(`🔄 Updating ${enrichedVehicles.length} vehicles with enriched data...`);
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
+
+    let updatedCount = 0;
+
+    for (const enrichedVehicle of enrichedVehicles) {
+      try {
+        console.log(`  🔄 Updating vehicle ${enrichedVehicle.vin}...`);
+
+        // Update vehicle with enriched data, focusing on dealer-specific fields
+        const updateData = {
+          // Pricing (dealer-specific)
+          price: enrichedVehicle.price || null,
+          monthly_payment: enrichedVehicle.monthly_payment || null,
+          down_payment: enrichedVehicle.down_payment || null,
+          msrp: enrichedVehicle.msrp || null,
+
+          // Availability (dealer-specific)
+          availability_status: enrichedVehicle.availability_status || null,
+          days_in_inventory: enrichedVehicle.days_in_inventory || null,
+          offsite_location: enrichedVehicle.offsite_location || false,
+          expected_arrival_date: enrichedVehicle.expected_arrival_date || null,
+
+          // Features (enriched from dealer site) - these are arrays
+          features: enrichedVehicle.features || [],
+          comfort_features: enrichedVehicle.comfort_features || [],
+          safety_features: enrichedVehicle.safety_features || [],
+          technology_features: enrichedVehicle.technology_features || [],
+          factory_options: enrichedVehicle.factory_options || [],
+          option_packages: enrichedVehicle.option_packages || [],
+          key_features: enrichedVehicle.key_features || [],
+
+          // Vehicle details
+          condition: enrichedVehicle.condition || null,
+          certified: enrichedVehicle.certified || false,
+          vehicle_category: enrichedVehicle.vehicle_category || null,
+          passenger_capacity: enrichedVehicle.passenger_capacity || null,
+
+          // Performance and efficiency
+          city_mpg: enrichedVehicle.city_mpg || null,
+          highway_mpg: enrichedVehicle.highway_mpg || null,
+          combined_mpg: enrichedVehicle.combined_mpg || null,
+
+          // Engine specifications
+          engine_size: enrichedVehicle.engine_size || null,
+          engine_cylinder_count: enrichedVehicle.engine_cylinder_count || null,
+          engine_specification: enrichedVehicle.engine_specification || null,
+
+          // Dealer-specific information
+          dealer_page_url: enrichedVehicle.dealer_page_url || null,
+          dealer_highlights: enrichedVehicle.dealer_highlights ? [enrichedVehicle.dealer_highlights] : [],
+          carfax_report_url: enrichedVehicle.carfax_report_url || null,
+
+          // Incentives and financing
+          incentives: enrichedVehicle.incentives || [],
+          financing_available: enrichedVehicle.financing_available || false,
+          warranty_details: enrichedVehicle.warranty_details || null,
+
+          // Additional media and actions
+          video_links: enrichedVehicle.video_links || [],
+          action_buttons: enrichedVehicle.action_buttons || [],
+
+          // Update timestamp
+          updated_at: new Date().toISOString()
+        };
+
+        console.log(`    📝 Update data:`, updateData);
+
+        const { error } = await supabase
+          .from('vehicles')
+          .update(updateData)
+          .eq('dealer_id', this.job.dealer_id)
+          .eq('vin', enrichedVehicle.vin);
+
+        if (error) {
+          console.log(`    ❌ Failed to update vehicle ${enrichedVehicle.vin}:`, error.message);
+        } else {
+          console.log(`    ✅ Successfully updated vehicle ${enrichedVehicle.vin}`);
+          updatedCount++;
         }
-        
-        // Only include URLs from the same domain
-        if (url.includes(baseUrl.replace('https://', '').replace('http://', ''))) {
-          urls.push(url)
-        }
+
+      } catch (error) {
+        console.log(`    ❌ Error updating vehicle ${enrichedVehicle.vin}:`, error instanceof Error ? error.message : String(error));
       }
     }
 
-    // Remove duplicates and limit to reasonable number
-    return [...new Set(urls)].slice(0, 50)
+    console.log(`✅ Vehicle update complete: ${updatedCount}/${enrichedVehicles.length} vehicles updated`);
+    return { updated: updatedCount };
   }
-
-  /**
-   * Post vehicles to Data API for ingestion
-   */
-  private async postVehiclesToDataApi(vehicles: any[]): Promise<any> {
-    if (vehicles.length === 0) {
-      logInfo('No vehicles to post to Data API')
-      return { processed: 0 }
-    }
-
-    const dataApiUrl = env.OD_DATA_API_URL
-    const apiKey = env.OD_API_KEY_SECRET
-
-    logInfo(`Posting ${vehicles.length} vehicles to Data API`)
-
-    const response = await fetch(`${dataApiUrl}/v1/vehicles/batch`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': apiKey,
-        'X-Dealer-ID': this.job.dealer_id
-      },
-      body: JSON.stringify({
-        vehicles,
-        source: 'dealer.com',
-        dealer_id: this.job.dealer_id
-      })
-    })
-
-    if (!response.ok) {
-      throw new Error(`Data API failed: ${response.status} ${response.statusText}`)
-    }
-
-    const result = await response.json()
-    
-    logSuccess(`Successfully posted vehicles to Data API`, {
-      vehicles_posted: vehicles.length,
-      result: result
-    })
-
-    return result
-  }
-
-  /**
-   * Create a new job execution record
-   */
-  private createExecution(): JobExecution {
-    return {
-      id: `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      job_id: this.job.id,
-      dealer_id: this.job.dealer_id,
-      platform: this.job.platform,
-      status: 'running',
-      start_time: new Date(),
-      vehicles_found: 0,
-      vehicles_processed: 0,
-      performance_metrics: {
-        duration_ms: 0,
-        api_calls: 0,
-        rate_limits_hit: 0
-      },
-      created_at: new Date()
-    }
-  }
-
-  /**
-   * Format error for logging
-   */
-  private formatError(error: any): string {
-    if (error instanceof Error) {
-      return error.message
-    }
-    if (typeof error === 'string') {
-      return error
-    }
-    return JSON.stringify(error)
-  }
-}
-
-// Helper function for warning logs
-function logWarning(message: string, data?: any) {
-  const timestamp = new Date().toISOString()
-  console.warn(`[${timestamp}] ⚠️ WARNING: ${message}`, data ? JSON.stringify(data, null, 2) : '')
 }

@@ -287,18 +287,34 @@ export class MultiDealerDependencyManager {
 
             console.log(`🔍 Checking dependencies for ${dependency.jobType}:`, dependency.dependsOn);
 
-            // Check if all dependencies are satisfied
-            const allDependenciesMet = dependency.dependsOn.every(dep => {
-                const depNodeId = `${dep.dealerId}:${dep.jobType}`;
-                const depNode = this.dependencyGraph.nodes.get(depNodeId);
-                const isMet = depNode && dep.status === 'completed';
-                console.log(`  Dependency ${dep.jobType}: ${dep.status} -> ${isMet}`);
+            // Check if all dependencies are satisfied by querying the actual job status
+            const allDependenciesMet = await Promise.all(dependency.dependsOn.map(async dep => {
+                console.log(`  🔍 Checking dependency: ${dep.jobType} for dealer ${dep.dealerId}`);
+
+                const { data: depJob, error } = await supabase
+                    .from('job_queue')
+                    .select('status, created_at')
+                    .eq('job_type', dep.jobType)
+                    .eq('payload->>dealer_id', dep.dealerId)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
+
+                if (error) {
+                    console.log(`  ❌ Error querying dependency: ${error.message}`);
+                    return false;
+                }
+
+                console.log(`  📋 Found dependency job:`, depJob);
+                const isMet = depJob && depJob.status === 'completed';
+                console.log(`  Dependency ${dep.jobType}: ${depJob?.status || 'not found'} -> ${isMet}`);
                 return isMet;
-            });
+            }));
 
-            console.log(`  All dependencies met for ${dependency.jobType}: ${allDependenciesMet}`);
+            const allMet = allDependenciesMet.every(met => met);
+            console.log(`  All dependencies met for ${dependency.jobType}: ${allMet}`);
 
-            if (allDependenciesMet) {
+            if (allMet) {
                 // Get the actual job from the queue
                 const { data: job } = await supabase
                     .from('job_queue')
@@ -410,7 +426,15 @@ export class MultiDealerDependencyManager {
                 console.log(`⚡ Processing ${job.job_type} for dealer ${dealerId}`);
 
                 // Execute job with enhanced error handling
-                const result = await this.executeJob(job);
+                let result: { success: boolean; error?: any };
+                if (job.job_type === 'homenet_feed') {
+                    result = await this.processHomeNetJob(job);
+                } else if (job.job_type === 'dealer_com_feed') {
+                    result = await this.processDealerComJob(job);
+                } else {
+                    console.warn('Unknown job type', { job_type: job.job_type, job_id: job.id });
+                    continue;
+                }
 
                 const durationMs = Date.now() - startTime;
                 results.push({
@@ -501,10 +525,23 @@ export class MultiDealerDependencyManager {
     }
 
     private async processDealerComJob(job: any): Promise<any> {
-        // Import and use the actual Dealer.com processor
         console.log(`Processing Dealer.com job for dealer ${job.payload.dealer_id}`);
-        // TODO: Integrate with actual Dealer.com processor
-        return { success: true, message: 'Dealer.com job processed' };
+        const jobForRunner = {
+            id: job.id,
+            dealer_id: job.payload.dealer_id,
+            dealer_name: job.payload.dealer_id,
+            platform: 'dealer.com' as const,
+            environment: (job.payload.environment || 'production') as 'production' | 'staging' | 'development' | 'testing',
+            schedule: 'daily' as const,
+            status: 'active' as const,
+            config: {},
+            created_at: new Date(),
+            updated_at: new Date(),
+            payload: job.payload
+        };
+        const runner = new DealerComJobRunner(jobForRunner);
+        const result = await runner.execute();
+        return result;
     }
 
     private async processProductDetailScrapingJob(job: any): Promise<any> {
