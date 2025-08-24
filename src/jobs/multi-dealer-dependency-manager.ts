@@ -17,6 +17,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { env } from '../env.js';
 import { EnhancedErrorHandler, executeJobWithErrorHandling } from './enhanced-error-handling.js';
+import { HomeNetJobRunner } from './homenet.js';
+import { DealerComJobRunner } from './dealer-com.js';
+import { getSupabaseClient } from '../utils.js';
 
 // Initialize Supabase client
 const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
@@ -182,7 +185,7 @@ export class MultiDealerDependencyManager {
                     .from('job_queue')
                     .select('status')
                     .eq('job_type', dep.jobType)
-                    .eq('payload->dealer_id', dep.dealerId)
+                    .eq('payload->>dealer_id', dep.dealerId)
                     .order('created_at', { ascending: false })
                     .limit(1)
                     .single();
@@ -282,12 +285,18 @@ export class MultiDealerDependencyManager {
         for (const [nodeId, dependency] of this.dependencyGraph.nodes) {
             if (dependency.dealerId !== dealerId) continue;
 
+            console.log(`🔍 Checking dependencies for ${dependency.jobType}:`, dependency.dependsOn);
+
             // Check if all dependencies are satisfied
             const allDependenciesMet = dependency.dependsOn.every(dep => {
                 const depNodeId = `${dep.dealerId}:${dep.jobType}`;
                 const depNode = this.dependencyGraph.nodes.get(depNodeId);
-                return depNode && dep.status === 'completed';
+                const isMet = depNode && dep.status === 'completed';
+                console.log(`  Dependency ${dep.jobType}: ${dep.status} -> ${isMet}`);
+                return isMet;
             });
+
+            console.log(`  All dependencies met for ${dependency.jobType}: ${allDependenciesMet}`);
 
             if (allDependenciesMet) {
                 // Get the actual job from the queue
@@ -295,14 +304,17 @@ export class MultiDealerDependencyManager {
                     .from('job_queue')
                     .select('*')
                     .eq('job_type', dependency.jobType)
-                    .eq('payload->dealer_id', dealerId)
+                    .eq('payload->>dealer_id', dealerId)
                     .eq('status', 'pending')
                     .order('created_at', { ascending: true })
                     .limit(1)
                     .single();
 
                 if (job) {
+                    console.log(`  ✅ Found ready job: ${job.job_type}`);
                     readyJobs.push(job);
+                } else {
+                    console.log(`  ❌ No pending job found for ${dependency.jobType}`);
                 }
             }
         }
@@ -331,7 +343,7 @@ export class MultiDealerDependencyManager {
             .eq('status', 'pending')
             .not('payload->dealer_id', 'is', null);
 
-        const uniqueDealers = [...new Set(dealersWithJobs?.map(j => (j as any).payload?.dealer_id).filter(Boolean) || [])];
+        const uniqueDealers = [...new Set(dealersWithJobs?.map(j => (j as any).dealer_id).filter(Boolean) || [])];
         this.processingStats.totalJobs = limit;
         this.processingStats.dealersProcessed = [];
 
@@ -464,10 +476,28 @@ export class MultiDealerDependencyManager {
      * These would integrate with the actual job processors
      */
     private async processHomeNetJob(job: any): Promise<any> {
-        // Import and use the actual HomeNet processor
+        // Use the actual HomeNet processor
         console.log(`Processing HomeNet job for dealer ${job.payload.dealer_id}`);
-        // TODO: Integrate with actual HomeNet processor
-        return { success: true, message: 'HomeNet job processed' };
+
+        // Create a job object that matches the expected format for HomeNetJobRunner
+        const jobForRunner = {
+            id: job.id,
+            dealer_id: job.payload.dealer_id,
+            dealer_name: job.payload.dealer_id, // Use dealer_id as name for now
+            platform: 'homenet' as const,
+            environment: (job.payload.environment || 'production') as 'production' | 'staging' | 'development' | 'testing',
+            schedule: 'daily' as const,
+            status: 'active' as const,
+            config: {},
+            created_at: new Date(),
+            updated_at: new Date(),
+            payload: job.payload
+        };
+
+        const runner = new HomeNetJobRunner(jobForRunner);
+        const result = await runner.execute();
+
+        return result;
     }
 
     private async processDealerComJob(job: any): Promise<any> {

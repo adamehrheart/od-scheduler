@@ -22,7 +22,7 @@ export class HomeNetJobRunner {
    */
   async execute(): Promise<JobExecution> {
     const timer = createPerformanceTimer()
-    
+
     try {
       logInfo(`Starting HomeNet job for dealer: ${this.job.dealer_name}`, {
         dealer_id: this.job.dealer_id,
@@ -36,10 +36,10 @@ export class HomeNetJobRunner {
 
       // 1. Fetch vehicles from HomeNet SOAP API
       const vehicles = await this.fetchVehiclesFromHomeNet()
-      
+
       // 2. Post vehicles to Data API
       const result = await this.postVehiclesToDataApi(vehicles)
-      
+
       // 3. Update execution with success
       this.execution.status = 'success'
       this.execution.end_time = new Date()
@@ -95,7 +95,7 @@ export class HomeNetJobRunner {
 
     // Build the SOAP transformer URL
     const url = new URL('/v1/transform/homenet', soapTransformerUrl)
-    
+
     // Add date filter for incremental updates (optional)
     const updatedSince = env.OD_UPDATED_SINCE || '2025-01-01T00:00:00Z'
     url.searchParams.set('updatedSince', updatedSince)
@@ -118,7 +118,7 @@ export class HomeNetJobRunner {
     }
 
     const data = await response.json() as any
-    
+
     if (!data.vehicles || !Array.isArray(data.vehicles)) {
       throw new Error('Invalid response from HomeNet SOAP API: missing vehicles array')
     }
@@ -135,8 +135,8 @@ export class HomeNetJobRunner {
       return { processed: 0 }
     }
 
-          const dataApiUrl = env.OD_DATA_API_URL
-      const apiKey = env.OD_API_KEY_SECRET
+    const dataApiUrl = env.OD_DATA_API_URL
+    const apiKey = env.OD_API_KEY_SECRET
 
     // Add dealer_id to each vehicle
     const vehiclesWithDealerId = vehicles.map(vehicle => ({
@@ -146,14 +146,14 @@ export class HomeNetJobRunner {
 
     logInfo(`Posting ${vehiclesWithDealerId.length} vehicles to Data API`)
 
-                const response = await fetch(`${dataApiUrl}/v1/vehicles/batch`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': apiKey,
-          'X-Dealer-ID': this.job.dealer_id,
-          'x-vercel-protection-bypass': env.VERCEL_DEPLOYMENT_PROTECTION_BYPASS || ''
-        },
+    const response = await fetch(`${dataApiUrl}/v1/vehicles/batch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey,
+        'X-Dealer-ID': this.job.dealer_id,
+        'x-vercel-protection-bypass': env.VERCEL_DEPLOYMENT_PROTECTION_BYPASS || ''
+      },
       body: JSON.stringify({
         vehicles: vehiclesWithDealerId,
         source: 'homenet',
@@ -161,12 +161,17 @@ export class HomeNetJobRunner {
       })
     })
 
+    // Add detailed logging for debugging
+    logInfo(`Data API response status: ${response.status} ${response.statusText}`)
+
     if (!response.ok) {
-      throw new Error(`Data API failed: ${response.status} ${response.statusText}`)
+      const errorText = await response.text()
+      logError(`Data API failed with status ${response.status}: ${errorText}`)
+      throw new Error(`Data API failed: ${response.status} ${response.statusText} - ${errorText}`)
     }
 
     const result = await response.json()
-    
+
     logSuccess(`Successfully posted vehicles to Data API`, {
       vehicles_posted: vehicles.length,
       result: result
@@ -221,7 +226,7 @@ export default async function runHomeNetJob(params: {
   integrationToken: string
 }): Promise<any> {
   console.log('🧪 Testing HomeNet integration...');
-  
+
   // Create a mock job for testing
   const mockJob: any = {
     id: 'test_job',
@@ -234,7 +239,7 @@ export default async function runHomeNetJob(params: {
   try {
     const runner = new HomeNetJobRunner(mockJob);
     const result = await runner.execute();
-    
+
     return {
       success: true,
       execution: result,
