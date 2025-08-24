@@ -138,7 +138,13 @@ export class HomeNetJobRunner {
           const dataApiUrl = env.OD_DATA_API_URL
       const apiKey = env.OD_API_KEY_SECRET
 
-    logInfo(`Posting ${vehicles.length} vehicles to Data API`)
+    // Add dealer_id to each vehicle
+    const vehiclesWithDealerId = vehicles.map(vehicle => ({
+      ...vehicle,
+      dealer_id: this.job.dealer_id
+    }))
+
+    logInfo(`Posting ${vehiclesWithDealerId.length} vehicles to Data API`)
 
                 const response = await fetch(`${dataApiUrl}/v1/vehicles/batch`, {
         method: 'POST',
@@ -146,10 +152,10 @@ export class HomeNetJobRunner {
           'Content-Type': 'application/json',
           'X-API-Key': apiKey,
           'X-Dealer-ID': this.job.dealer_id,
-          'x-vercel-protection-bypass': 'ajCgGGKZVrjpA7CY5f1tWFNAuI1VihS6'
+          'x-vercel-protection-bypass': env.VERCEL_DEPLOYMENT_PROTECTION_BYPASS || ''
         },
       body: JSON.stringify({
-        vehicles,
+        vehicles: vehiclesWithDealerId,
         source: 'homenet',
         dealer_id: this.job.dealer_id
       })

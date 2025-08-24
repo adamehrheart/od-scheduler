@@ -30,6 +30,9 @@ export const EnvSchema = z.object({
 
   // Rebrandly
   OD_REBRANDLY_API_KEY: z.string().min(8).optional(),
+
+  // Vercel
+  VERCEL_DEPLOYMENT_PROTECTION_BYPASS: z.string().optional(),
 })
 
 export type AppEnv = z.infer<typeof EnvSchema>
