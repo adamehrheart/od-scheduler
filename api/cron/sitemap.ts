@@ -1,7 +1,6 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
 import { SchedulerService } from '../../src/scheduler.js';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: any, res: any) {
   // Verify this is a cron request
   const authHeader = req.headers.authorization;
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -23,7 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (error) {
     console.error('❌ Sitemap processing failed:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Sitemap processing failed',
       details: error instanceof Error ? error.message : 'Unknown error'

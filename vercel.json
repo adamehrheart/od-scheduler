@@ -7,6 +7,9 @@
     },
     "api/cron/cleanup.ts": {
       "maxDuration": 60
+    },
+    "api/cron/url-shortening.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -17,6 +20,10 @@
     {
       "path": "/api/cron/cleanup",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/url-shortening",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

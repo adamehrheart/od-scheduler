@@ -3,6 +3,7 @@ import { HomeNetJobRunner } from './jobs/homenet.js'
 import { DealerComJobRunner } from './jobs/dealer-com.js'
 import { processUrlShorteningJobs } from './jobs/url-shortening.js'
 import { processSitemapJobs } from './jobs/sitemap-processor.js'
+import { processProductDetailScrapingJobs } from './jobs/product-detail-scraping.js'
 import type { ScheduledJob, JobExecution, JobResult, RunJobsRequest, RunJobsResponse } from './types.js'
 
 /**
@@ -85,27 +86,28 @@ export class SchedulerService {
   }
 
   /**
-   * Get active jobs from PayloadCMS
+   * Get active jobs from Supabase (synced from PayloadCMS)
    */
   private async getActiveJobs(request: RunJobsRequest): Promise<ScheduledJob[]> {
     try {
-      // Query PayloadCMS for active dealers with platforms
+      // Query Supabase for active dealers with platforms (synced from PayloadCMS)
       const { data: dealers, error } = await this.supabase
         .from('dealers')
         .select(`
           id,
           name,
-          platforms,
+          slug,
+          domain,
           status,
-          homenet_config,
-          dealer_com_config,
-          web_scraping_config
+          api_config
         `)
         .eq('status', 'active')
 
       if (error) {
         throw new Error(`Failed to fetch dealers: ${error.message}`)
       }
+
+      logInfo(`Fetched ${dealers.length} active dealers from Supabase`)
 
       // Convert dealers to scheduled jobs
       const jobs: ScheduledJob[] = []
@@ -116,8 +118,8 @@ export class SchedulerService {
           continue
         }
 
-        // Get platforms for this dealer
-        const platforms = dealer.platforms || []
+        // Get platforms for this dealer from api_config
+        const platforms = dealer.api_config?.platforms || []
 
         for (const platform of platforms) {
           // Filter by platform if specified
@@ -167,13 +169,13 @@ export class SchedulerService {
     let config = {}
     switch (platform) {
       case 'homenet':
-        config = dealer.homenet_config || {}
+        config = dealer.api_config?.homenet_config || {}
         break
       case 'dealer.com':
-        config = dealer.dealer_com_config || {}
+        config = dealer.api_config?.dealer_com_config || {}
         break
       case 'web_scraping':
-        config = dealer.web_scraping_config || {}
+        config = dealer.api_config?.web_scraping_config || {}
         break
     }
 
@@ -390,6 +392,43 @@ export class SchedulerService {
 
     } catch (error) {
       logError('Sitemap job processing failed', error)
+
+      return {
+        processed: 0,
+        success: 0,
+        failed: 1,
+        errors: [error instanceof Error ? error.message : String(error)]
+      }
+    }
+  }
+
+  /**
+   * Process product detail scraping jobs from the queue
+   */
+  async processProductDetailScrapingJobs(maxJobs: number = 10): Promise<{
+    processed: number;
+    success: number;
+    failed: number;
+    errors: string[];
+  }> {
+    const timer = createPerformanceTimer()
+
+    try {
+      logInfo('Starting product detail scraping job processing', { maxJobs })
+
+      const result = await processProductDetailScrapingJobs(maxJobs)
+
+      logSuccess('Product detail scraping job processing completed', {
+        processed: result.processed,
+        success: result.success,
+        failed: result.failed,
+        execution_time_ms: timer.getDurationMs()
+      })
+
+      return result
+
+    } catch (error) {
+      logError('Product detail scraping job processing failed', error)
 
       return {
         processed: 0,

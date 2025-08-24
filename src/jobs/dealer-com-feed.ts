@@ -90,13 +90,13 @@ export async function processDealerComFeedForDealer(
             throw new Error(`Failed to fetch Dealer.com feed: ${response.status} ${response.statusText}`);
         }
 
-        const data: DealerComInventoryResponse = await response.json();
-        
+        const data = await response.json() as DealerComInventoryResponse;
+
         if (!data.inventory || !Array.isArray(data.inventory)) {
             throw new Error('Invalid response structure from Dealer.com feed');
         }
 
-        logFunction('info', 'Dealer.com feed fetched successfully', { 
+        logFunction('info', 'Dealer.com feed fetched successfully', {
             totalVehicles: data.inventory.length,
             totalCount: data.totalCount
         });
@@ -131,7 +131,7 @@ export async function processDealerComFeedForDealer(
             }
 
             const existingVehicle = existingVinMap.get(vehicle.vin);
-            
+
             // Prepare vehicle data for database
             const vehicleData = {
                 vin: vehicle.vin,
@@ -168,63 +168,31 @@ export async function processDealerComFeedForDealer(
                 last_updated: new Date().toISOString()
             };
 
+            // Use upsert to handle both insert and update atomically
+            const { error: upsertError } = await supabase
+                .from('vehicles')
+                .upsert({
+                    ...vehicleData,
+                    short_url_status: existingVehicle?.short_url_status || 'pending'
+                }, { 
+                    onConflict: 'dealer_id,vin',
+                    ignoreDuplicates: false 
+                });
+
+            if (upsertError) {
+                logFunction('error', 'Failed to upsert vehicle', { vin: vehicle.vin, error: upsertError.message });
+                continue;
+            }
+
+            // Track if this was a new or updated vehicle
             if (existingVehicle) {
-                // Update existing vehicle
-                const { error: updateError } = await supabase
-                    .from('vehicles')
-                    .update(vehicleData)
-                    .eq('vin', vehicle.vin)
-                    .eq('dealer_id', dealerId);
-
-                if (updateError) {
-                    logFunction('error', 'Failed to update vehicle', { vin: vehicle.vin, error: updateError.message });
-                    continue;
-                }
-
                 updatedVehicles++;
-
-                // If vehicle doesn't have a short URL, create a job for it
-                if (!existingVehicle.short_url_status || existingVehicle.short_url_status === 'pending') {
-                    urlShorteningJobs.push({
-                        job_type: 'url_shortening',
-                        status: 'pending',
-                        attempts: 0,
-                        max_attempts: 3,
-                        payload: {
-                            dealer_id: dealerId,
-                            vin: vehicle.vin,
-                            dealerurl: vehicleData.dealerurl,
-                            utm: {
-                                dealerId: dealerId,
-                                vin: vehicle.vin,
-                                make: vehicle.make,
-                                model: vehicle.model,
-                                year: vehicle.year,
-                                medium: 'LLM',
-                                source: 'dealer_com_feed'
-                            }
-                        },
-                        created_at: new Date().toISOString(),
-                        scheduled_at: new Date().toISOString()
-                    });
-                }
             } else {
-                // Insert new vehicle
-                const { error: insertError } = await supabase
-                    .from('vehicles')
-                    .insert({
-                        ...vehicleData,
-                        short_url_status: 'pending'
-                    });
-
-                if (insertError) {
-                    logFunction('error', 'Failed to insert vehicle', { vin: vehicle.vin, error: insertError.message });
-                    continue;
-                }
-
                 newVehicles++;
+            }
 
-                // Create URL shortening job for new vehicle
+            // Create URL shortening job if vehicle doesn't have a short URL
+            if (!existingVehicle?.short_url_status || existingVehicle.short_url_status === 'pending') {
                 urlShorteningJobs.push({
                     job_type: 'url_shortening',
                     status: 'pending',
@@ -285,7 +253,7 @@ export async function processDealerComFeedForDealer(
             dealerId,
             siteId: dealerConfig.siteId
         });
-        
+
         return {
             success: false,
             error: errorMessage
@@ -354,7 +322,7 @@ export async function processDealerComFeedJobs(
 
                 if (result.success) {
                     success++;
-                    
+
                     // Mark job as completed
                     await supabase
                         .from('job_queue')

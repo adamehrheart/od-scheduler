@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import { SchedulerService } from './scheduler.js'
-import { processUrlShorteningJobs } from './jobs/url-shortening.js'
+import { processUrlShorteningJobsEnhanced } from './jobs/url-shortening-enhanced.js'
+import { processProductDetailScrapingJobsEnhanced } from './jobs/product-detail-scraping-enhanced.js'
 
 const PORT = 3003
 
@@ -30,8 +31,8 @@ const server = createServer(async (req, res) => {
     // Health check
     if (req.method === 'GET' && url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ 
-        status: 'ok', 
+      res.end(JSON.stringify({
+        status: 'ok',
         service: 'od-scheduler',
         timestamp: new Date().toISOString()
       }))
@@ -51,7 +52,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/jobs/url-shortening') {
       const limit = parseInt(url.searchParams.get('limit') || '10')
       console.log(`🔗 Processing URL shortening jobs (limit: ${limit})...`)
-      const result = await processUrlShorteningJobs(limit)
+      const result = await processUrlShorteningJobsEnhanced(limit)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(result, null, 2))
       return
@@ -62,6 +63,16 @@ const server = createServer(async (req, res) => {
       const limit = parseInt(url.searchParams.get('limit') || '10')
       console.log(`🗺️ Processing sitemap jobs (limit: ${limit})...`)
       const result = await scheduler.processSitemapJobs(limit)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(result, null, 2))
+      return
+    }
+
+    // Process product detail scraping jobs
+    if (req.method === 'POST' && url.pathname === '/api/jobs/product-detail-scraping') {
+      const limit = parseInt(url.searchParams.get('limit') || '10')
+      console.log(`🔍 Processing product detail scraping jobs (limit: ${limit})...`)
+      const result = await processProductDetailScrapingJobsEnhanced(limit)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(result, null, 2))
       return
@@ -94,6 +105,7 @@ const server = createServer(async (req, res) => {
           'POST /api/jobs/run': 'Run all scheduled jobs',
           'POST /api/jobs/url-shortening?limit=N': 'Process URL shortening jobs',
           'POST /api/jobs/sitemap?limit=N': 'Process sitemap jobs',
+          'POST /api/jobs/product-detail-scraping?limit=N': 'Process product detail scraping jobs',
           'POST /api/jobs/dealer?dealer_id=ID': 'Run jobs for specific dealer'
         },
         examples: {
@@ -101,6 +113,7 @@ const server = createServer(async (req, res) => {
           'Run all jobs': `curl -X POST http://localhost:${PORT}/api/jobs/run`,
           'Process URL shortening': `curl -X POST http://localhost:${PORT}/api/jobs/url-shortening?limit=5`,
           'Process sitemap': `curl -X POST http://localhost:${PORT}/api/jobs/sitemap?limit=5`,
+          'Process product detail scraping': `curl -X POST http://localhost:${PORT}/api/jobs/product-detail-scraping?limit=5`,
           'Run dealer jobs': `curl -X POST http://localhost:${PORT}/api/jobs/dealer?dealer_id=DEALER_ID`
         }
       }, null, 2))
@@ -114,9 +127,9 @@ const server = createServer(async (req, res) => {
   } catch (error: any) {
     console.error('Server error:', error)
     res.writeHead(500, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ 
+    res.end(JSON.stringify({
       error: 'Internal Server Error',
-      message: error.message 
+      message: error.message
     }))
   }
 })

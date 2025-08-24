@@ -186,24 +186,10 @@ function generateVersionedSlashtag(
     const normalizedDealerId = dealerId.toLowerCase().replace(/[^a-z0-9-]/g, '-');
     const normalizedVin = vin.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    // Calculate available space for dealer ID and VIN
-    // Format: v1/service/dealer/vin (with 3 slashes = 3 characters)
-    const prefixLength = version.length + 1 + service.length + 1; // "v1/service/"
-    const suffixLength = 1; // "/vin"
-    const availableSpace = 50 - prefixLength - suffixLength;
-
-    // If dealer ID is too long, truncate it
-    let truncatedDealerId = normalizedDealerId;
-    if (normalizedDealerId.length > availableSpace - 8) { // Leave at least 8 chars for VIN
-        truncatedDealerId = normalizedDealerId.substring(0, availableSpace - 8);
-    }
-
-    // If VIN is too long, truncate it
-    let truncatedVin = normalizedVin;
-    const remainingSpace = availableSpace - truncatedDealerId.length;
-    if (normalizedVin.length > remainingSpace) {
-        truncatedVin = normalizedVin.substring(0, remainingSpace);
-    }
+    // Use more unique format to avoid conflicts
+    // Format: v1/llm/dealerId(6chars)/vin(12chars)
+    const truncatedDealerId = normalizedDealerId.substring(0, 6);
+    const truncatedVin = normalizedVin.substring(0, 12);
 
     // Generate deterministic slashtag
     return `${version}/${service}/${truncatedDealerId}/${truncatedVin}`;
@@ -249,31 +235,33 @@ async function createShortLinkForVehicleWithVerification(
             });
         }
 
-        // Step 2: Create UTM parameters
-        const utmParams = new URLSearchParams();
-        if (utm.dealerId) utmParams.set('utm_dealer', utm.dealerId);
-        if (utm.vin) utmParams.set('utm_vin', utm.vin);
-        if (utm.make) utmParams.set('utm_make', utm.make);
-        if (utm.model) utmParams.set('utm_model', utm.model);
-        if (utm.year) utmParams.set('utm_year', utm.year);
-        if (utm.medium) utmParams.set('utm_medium', utm.medium);
-        if (utm.source) utmParams.set('utm_source', utm.source);
-
+        // Step 2: Use the basic dealer URL (simplified for now)
         const targetUrl = verification?.finalUrl || dealerurl;
-        const urlWithUtm = utmParams.toString() ? `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}${utmParams.toString()}` : targetUrl;
+        const urlWithUtm = targetUrl;
 
         // Step 3: Generate slashtag
         const slashtag = generateVersionedSlashtag(utm.dealerId, utm.vin);
 
         // Step 4: Create Rebrandly link
         const rebrandlyApiKey = env.OD_REBRANDLY_API_KEY;
+        console.log('🔍 Debug: Rebrandly API key check:', {
+            hasKey: !!rebrandlyApiKey,
+            keyLength: rebrandlyApiKey?.length || 0
+        });
+
         if (!rebrandlyApiKey) {
+            logFunction('error', 'Rebrandly API key not configured');
             return {
                 success: false,
                 error: 'Rebrandly API key not configured',
                 verification,
             };
         }
+
+        logFunction('info', 'Creating Rebrandly link', {
+            destination: urlWithUtm,
+            slashtag: slashtag
+        });
 
         const response = await fetch('https://api.rebrandly.com/v1/links', {
             method: 'POST',
@@ -317,6 +305,13 @@ async function createShortLinkForVehicleWithVerification(
             verification: verification,
         };
     } catch (error: any) {
+        console.log('🔍 Debug: Caught error in createShortLinkForVehicleWithVerification:', {
+            error: error,
+            message: error?.message,
+            stack: error?.stack,
+            type: typeof error
+        });
+
         const errorMessage = error?.message || error?.toString() || 'Unknown error';
         logFunction('error', 'Short link creation failed', {
             error: errorMessage,
@@ -368,6 +363,9 @@ export async function processUrlShorteningJobs(maxJobs: number = 10): Promise<{
 
         for (const job of jobs) {
             try {
+                console.log(`🔍 Debug: Processing job ${job.id}`);
+                console.log(`🔍 Debug: Job data:`, job);
+
                 // Mark job as processing
                 await supabase
                     .from('job_queue')
@@ -406,143 +404,141 @@ export async function processUrlShorteningJobs(maxJobs: number = 10): Promise<{
                     continue;
                 }
 
-                // Create short link
-                const result = await createShortLinkForVehicleWithVerification(
-                    payload.dealerurl,
-                    payload.utm,
-                    {
-                        verifyUrl: true,
-                        timeoutMs: 10000,
-                        logFunction: (level, message, meta) => {
-                            console.log(`[${level.toUpperCase()}] ${message}`, meta);
+                // Create short link using simple approach (same as working manual script)
+                const rebrandlyApiKey = env.OD_REBRANDLY_API_KEY;
+                if (!rebrandlyApiKey) {
+                    throw new Error('Rebrandly API key not configured');
+                }
+
+                // Use simple slashtag format (same as working manual script)
+                const normalizedDealerId = payload.dealer_id.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+                const normalizedVin = payload.vin.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const slashtag = `v1/llm/${normalizedDealerId.substring(0, 6)}/${normalizedVin.substring(0, 12)}`;
+
+                console.log(`Creating short link with slashtag: ${slashtag}`);
+
+                const response = await fetch('https://api.rebrandly.com/v1/links', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': rebrandlyApiKey,
+                    },
+                    body: JSON.stringify({
+                        destination: payload.dealerurl,
+                        slashtag: slashtag,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(`Rebrandly API error: ${response.status} ${JSON.stringify(errorData)}`);
+                }
+
+                const linkData = await response.json() as any;
+                const fullShortUrl = linkData.shortUrl.startsWith('http') ? linkData.shortUrl : `https://${linkData.shortUrl}`;
+
+                // Update vehicle with short URL
+                await supabase
+                    .from('vehicles')
+                    .update({
+                        short_url: fullShortUrl,
+                        rebrandly_id: linkData.id,
+                        short_url_status: 'completed',
+                        short_url_last_attempt: new Date().toISOString()
+                    })
+                    .eq('dealer_id', payload.dealer_id)
+                    .eq('vin', payload.vin);
+
+                // Mark job as completed
+                await supabase
+                    .from('job_queue')
+                    .update({
+                        status: 'completed',
+                        completed_at: new Date().toISOString(),
+                        result: {
+                            shortUrl: fullShortUrl,
+                            id: linkData.id
                         }
-                    }
-                );
+                    })
+                    .eq('id', job.id);
 
-                if (result.success && result.shortUrl && result.id) {
-                    // Update vehicle with short URL
-                    const fullShortUrl = result.shortUrl.startsWith('http') ? result.shortUrl : `https://${result.shortUrl}`;
+                processed++;
+                success++;
+                console.log(`Job ${job.id}: Short URL created successfully`, {
+                    vin: payload.vin,
+                    shortUrl: fullShortUrl
+                });
+            } catch (error: any) {
+                // Handle failure
+                const maxAttempts = job.max_attempts || 3;
+                const currentAttempts = (job.attempts || 0) + 1;
+                const errorMessage = error?.message || error?.toString() || 'Unknown error';
 
+                // Get payload from job for error handling
+                const jobData = job as UrlShorteningJob;
+                const { payload } = jobData;
+
+                if (currentAttempts >= maxAttempts) {
+                    // Mark job as failed
+                    await supabase
+                        .from('job_queue')
+                        .update({
+                            status: 'failed',
+                            completed_at: new Date().toISOString(),
+                            error: errorMessage
+                        })
+                        .eq('id', job.id);
+
+                    // Update vehicle status
                     await supabase
                         .from('vehicles')
                         .update({
-                            short_url: fullShortUrl,
-                            rebrandly_id: result.id,
-                            short_url_status: 'completed',
-                            short_url_last_attempt: new Date().toISOString()
+                            short_url_status: 'failed',
+                            short_url_last_attempt: new Date().toISOString(),
+                            short_url_attempts: currentAttempts
                         })
                         .eq('dealer_id', payload.dealer_id)
                         .eq('vin', payload.vin);
 
-                    // Mark job as completed
+                    processed++;
+                    failed++;
+                    errors.push(`Job ${job.id}: ${errorMessage}`);
+                    console.error(`Job ${job.id}: Failed after ${currentAttempts} attempts`, {
+                        vin: payload.vin,
+                        error: errorMessage
+                    });
+                } else {
+                    // Retry with exponential backoff
+                    const backoffMs = Math.min(1000 * Math.pow(2, currentAttempts - 1), 30000); // Max 30 seconds
+                    const retryAt = new Date(Date.now() + backoffMs);
+
                     await supabase
                         .from('job_queue')
                         .update({
-                            status: 'completed',
-                            completed_at: new Date().toISOString(),
-                            result: {
-                                shortUrl: fullShortUrl,
-                                id: result.id,
-                                verification: result.verification
-                            }
+                            status: 'retry',
+                            scheduled_at: retryAt.toISOString(),
+                            error: errorMessage
                         })
                         .eq('id', job.id);
 
+                    // Update vehicle status
+                    await supabase
+                        .from('vehicles')
+                        .update({
+                            short_url_status: 'processing',
+                            short_url_last_attempt: new Date().toISOString(),
+                            short_url_attempts: currentAttempts
+                        })
+                        .eq('dealer_id', payload.dealer_id)
+                        .eq('vin', payload.vin);
+
                     processed++;
-                    success++;
-                    console.log(`Job ${job.id}: Short URL created successfully`, {
+                    console.log(`Job ${job.id}: Scheduled for retry in ${backoffMs}ms`, {
                         vin: payload.vin,
-                        shortUrl: fullShortUrl
-                    });
-                } else {
-                    // Handle failure
-                    const maxAttempts = job.max_attempts || 3;
-                    const currentAttempts = (job.attempts || 0) + 1;
-                    const errorMessage = result.error || 'Unknown error';
-
-                    if (currentAttempts >= maxAttempts) {
-                        // Mark job as failed
-                        await supabase
-                            .from('job_queue')
-                            .update({
-                                status: 'failed',
-                                completed_at: new Date().toISOString(),
-                                error: errorMessage
-                            })
-                            .eq('id', job.id);
-
-                        // Update vehicle status
-                        await supabase
-                            .from('vehicles')
-                            .update({
-                                short_url_status: 'failed',
-                                short_url_last_attempt: new Date().toISOString(),
-                                short_url_attempts: currentAttempts
-                            })
-                            .eq('dealer_id', payload.dealer_id)
-                            .eq('vin', payload.vin);
-
-                        processed++;
-                        failed++;
-                        errors.push(`Job ${job.id}: ${errorMessage}`);
-                        console.error(`Job ${job.id}: Failed after ${currentAttempts} attempts`, {
-                            vin: payload.vin,
-                            error: errorMessage
-                        });
-                    } else {
-                        // Retry with exponential backoff
-                        const backoffMs = Math.min(1000 * Math.pow(2, currentAttempts - 1), 30000); // Max 30 seconds
-                        const retryAt = new Date(Date.now() + backoffMs);
-
-                        await supabase
-                            .from('job_queue')
-                            .update({
-                                status: 'retry',
-                                scheduled_at: retryAt.toISOString(),
-                                error: errorMessage
-                            })
-                            .eq('id', job.id);
-
-                        // Update vehicle status
-                        await supabase
-                            .from('vehicles')
-                            .update({
-                                short_url_status: 'processing',
-                                short_url_last_attempt: new Date().toISOString(),
-                                short_url_attempts: currentAttempts
-                            })
-                            .eq('dealer_id', payload.dealer_id)
-                            .eq('vin', payload.vin);
-
-                        processed++;
-                        console.log(`Job ${job.id}: Scheduled for retry in ${backoffMs}ms`, {
-                            vin: payload.vin,
-                            attempt: currentAttempts,
-                            error: errorMessage
-                        });
-                    }
-                }
-            } catch (error: any) {
-                processed++;
-                failed++;
-                const errorMessage = error?.message || error?.toString() || 'Unknown error';
-                const errorMsg = `Job ${job.id}: ${errorMessage}`;
-                errors.push(errorMsg);
-                console.error(errorMsg, {
-                    stack: error?.stack,
-                    jobId: job.id,
-                    vin: job.payload?.vin
-                });
-
-                // Mark job as failed
-                await supabase
-                    .from('job_queue')
-                    .update({
-                        status: 'failed',
-                        completed_at: new Date().toISOString(),
+                        attempt: currentAttempts,
                         error: errorMessage
-                    })
-                    .eq('id', job.id);
+                    });
+                }
             }
         }
 

@@ -57,9 +57,9 @@ export async function processSitemapForDealer(
             return url.loc.includes('/new/Honda/') && url.loc.endsWith('.htm');
         });
 
-        logFunction('info', 'Found vehicle URLs in sitemap', { 
+        logFunction('info', 'Found vehicle URLs in sitemap', {
             total: parsed.urlset.url.length,
-            vehicleUrls: vehicleUrls.length 
+            vehicleUrls: vehicleUrls.length
         });
 
         // Get existing vehicles for this dealer
@@ -80,33 +80,117 @@ export async function processSitemapForDealer(
             existingVehicleMap.set(vehicle.vin, vehicle.dealerurl || '');
         });
 
+        // Enhanced matching: Find vehicles without URLs and match them to sitemap URLs
+        const { data: vehiclesWithoutUrls, error: fetchVehiclesError } = await supabase
+            .from('vehicles')
+            .select('vin, make, model, year, trim')
+            .eq('dealer_id', dealerId)
+            .is('dealerurl', null);
+
+        if (fetchVehiclesError) {
+            logFunction('error', 'Failed to fetch vehicles without URLs', { error: fetchVehiclesError.message });
+        } else {
+            logFunction('info', 'Found vehicles without URLs', { count: vehiclesWithoutUrls?.length || 0 });
+        }
+
         // Process each vehicle URL
         let updatedCount = 0;
         let newUrlCount = 0;
+        let matchedCount = 0;
         const urlShorteningJobs = [];
 
+        // First, try to match vehicles without URLs to sitemap URLs
+        if (vehiclesWithoutUrls && vehiclesWithoutUrls.length > 0) {
+            for (const vehicle of vehiclesWithoutUrls) {
+                let bestMatch = null;
+                let bestScore = 0;
+
+                for (const urlData of vehicleUrls) {
+                    const url = urlData.loc;
+                    const score = calculateVehicleUrlMatchScore(vehicle, url);
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMatch = url;
+                    }
+                }
+
+                // Use match if score is reasonable (lowered threshold to catch more vehicles)
+                if (bestMatch && bestScore >= 0.1) {
+                    logFunction('info', 'Matched vehicle to URL', {
+                        vin: vehicle.vin,
+                        vehicle: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+                        score: bestScore.toFixed(2),
+                        url: bestMatch
+                    });
+
+                    // Update vehicle with URL
+                    const { error: updateError } = await supabase
+                        .from('vehicles')
+                        .update({
+                            dealerurl: bestMatch,
+                            short_url_status: 'pending',
+                            short_url_attempts: 0,
+                            short_url_last_attempt: null
+                        })
+                        .eq('vin', vehicle.vin)
+                        .eq('dealer_id', dealerId);
+
+                    if (updateError) {
+                        logFunction('error', 'Failed to update vehicle URL', { vin: vehicle.vin, error: updateError.message });
+                        continue;
+                    }
+
+                    matchedCount++;
+
+                    // Create URL shortening job
+                    urlShorteningJobs.push({
+                        job_type: 'url_shortening',
+                        status: 'pending',
+                        attempts: 0,
+                        max_attempts: 3,
+                        payload: {
+                            dealer_id: dealerId,
+                            vin: vehicle.vin,
+                            dealerurl: bestMatch,
+                            utm: {
+                                dealerId: dealerId,
+                                vin: vehicle.vin,
+                                make: vehicle.make,
+                                model: vehicle.model,
+                                year: vehicle.year,
+                                medium: 'LLM',
+                                source: 'sitemap'
+                            }
+                        },
+                        created_at: new Date().toISOString(),
+                        scheduled_at: new Date().toISOString()
+                    });
+                } else {
+                    logFunction('info', 'No good URL match found for vehicle', {
+                        vin: vehicle.vin,
+                        vehicle: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+                        bestScore: bestScore.toFixed(2)
+                    });
+                }
+            }
+        }
+
+        // Then process existing URLs for updates (original logic)
         for (const urlData of vehicleUrls) {
             const url = urlData.loc;
-            
+
             // Extract VIN from URL (assuming it's in the URL somewhere)
-            // For RSM Honda, the VIN appears to be in the URL hash
             const urlParts = url.split('/');
             const filename = urlParts[urlParts.length - 1];
             const hashPart = filename.split('.')[0];
-            
+
             // Try to find a VIN in the existing vehicles that matches this URL
-            // This is a simplified approach - we'll need to enhance this logic
             let matchedVin = null;
-            
-            // For now, let's create a placeholder approach
-            // In practice, we'd need to either:
-            // 1. Scrape the page to get the VIN
-            // 2. Have a mapping from URL to VIN
-            // 3. Use the HomeNet data to match by other criteria
-            
+
             // For demonstration, let's assume we can extract some identifier
             const urlIdentifier = hashPart.substring(hashPart.length - 8); // Last 8 chars
-            
+
             // Find matching vehicle by some criteria
             for (const [vin, existingUrl] of existingVehicleMap) {
                 if (existingUrl && existingUrl.includes(urlIdentifier)) {
@@ -117,14 +201,14 @@ export async function processSitemapForDealer(
 
             if (matchedVin) {
                 const existingUrl = existingVehicleMap.get(matchedVin);
-                
+
                 if (existingUrl !== url) {
                     // URL has changed or is new
                     logFunction('info', 'Updating vehicle URL', { vin: matchedVin, oldUrl: existingUrl, newUrl: url });
-                    
+
                     const { error: updateError } = await supabase
                         .from('vehicles')
-                        .update({ 
+                        .update({
                             dealerurl: url,
                             short_url_status: 'pending',
                             short_url_attempts: 0,
@@ -204,7 +288,7 @@ export async function processSitemapForDealer(
             dealerId,
             sitemapUrl
         });
-        
+
         return {
             success: false,
             error: errorMessage
@@ -273,7 +357,7 @@ export async function processSitemapJobs(
 
                 if (result.success) {
                     success++;
-                    
+
                     // Mark job as completed
                     await supabase
                         .from('job_queue')
@@ -333,6 +417,53 @@ export async function processSitemapJobs(
     } catch (error: any) {
         const errorMessage = error?.message || error?.toString() || 'Unknown error';
         logFunction('error', 'Sitemap job processing failed', { error: errorMessage });
-        throw error;
+        return { processed: 0, success: 0, failed: 1, errors: [errorMessage] };
     }
+}
+
+/**
+ * Calculate match score between a vehicle and a URL
+ * URLs follow pattern: /new/, /used/, /certified/ + make/model/year
+ */
+function calculateVehicleUrlMatchScore(vehicle: any, url: string): number {
+    let score = 0;
+
+    const urlLower = url.toLowerCase();
+    const vehicleLower = {
+        make: vehicle.make?.toLowerCase() || '',
+        model: vehicle.model?.toLowerCase() || '',
+        year: vehicle.year?.toString() || '',
+        trim: vehicle.trim?.toLowerCase() || ''
+    };
+
+    // Check for vehicle type in URL (/new/, /used/, /certified/)
+    if (urlLower.includes('/new/')) {
+        score += 0.1; // New vehicles
+    } else if (urlLower.includes('/used/')) {
+        score += 0.1; // Used vehicles  
+    } else if (urlLower.includes('/certified/')) {
+        score += 0.1; // Certified vehicles
+    }
+
+    // Year match (exact)
+    if (urlLower.includes(vehicleLower.year)) {
+        score += 0.4;
+    }
+
+    // Make match (any brand)
+    if (urlLower.includes(vehicleLower.make)) {
+        score += 0.3;
+    }
+
+    // Model match (partial)
+    if (vehicleLower.model && urlLower.includes(vehicleLower.model)) {
+        score += 0.2;
+    }
+
+    // Trim match (if available)
+    if (vehicleLower.trim && urlLower.includes(vehicleLower.trim)) {
+        score += 0.1;
+    }
+
+    return Math.max(0, score);
 }
