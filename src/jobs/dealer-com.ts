@@ -55,7 +55,7 @@ export class DealerComJobRunner {
       // Configure Dealer.com pagination
       const config: DealerComPaginationConfig = {
         siteId: this.extractDealerComSiteId(dealer.domain),
-        baseUrl: `https://${dealer.domain}`,
+        baseUrl: 'https://www.rsmhondaonline.com', // Use the same URL that works in multi-source approach
         pageSize: 100,
         maxPages: 10
       };
@@ -711,7 +711,7 @@ export class DealerComJobRunner {
 
     for (const vehicle of vehicles) {
       try {
-        // Prepare vehicle data for storage
+        // Prepare vehicle data for storage (matching actual schema)
         const vehicleData = {
           vin: vehicle.vin,
           dealer_id: this.job.dealer_id,
@@ -726,12 +726,9 @@ export class DealerComJobRunner {
           fuel_type: vehicle.fuel_type,
           mileage: vehicle.mileage,
           price: vehicle.price,
-          msrp: vehicle.msrp,
-          exterior_color: vehicle.exterior_color,
-          interior_color: vehicle.interior_color,
-          dealer_page_url: vehicle.dealer_page_url,
+          color_ext: vehicle.exterior_color,
+          color_int: vehicle.interior_color,
           images: vehicle.images,
-          source: 'dealer_com_only',
           updated_at: new Date().toISOString()
         };
 

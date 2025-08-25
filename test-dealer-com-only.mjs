@@ -27,13 +27,13 @@ const testJob = {
 
 async function testDealerComOnly() {
   console.log('🧪 Testing Dealer.com-only approach...\n');
-  
+
   // Test 1: Feature flag configuration
   console.log('📋 Test 1: Feature Flag Configuration');
   console.log('Current config:', getCurrentConfig());
   console.log('Dealer.com-only enabled:', useDealerComOnly());
   console.log('');
-  
+
   // Test 2: Job runner initialization
   console.log('📋 Test 2: Job Runner Initialization');
   const jobRunner = new DealerComJobRunner(testJob);
@@ -42,15 +42,15 @@ async function testDealerComOnly() {
   console.log('Dealer ID:', jobRunner.job.dealer_id);
   console.log('Platform:', jobRunner.job.platform);
   console.log('');
-  
+
   // Test 3: Execute job (this will test the feature flag logic)
   console.log('📋 Test 3: Job Execution (Feature Flag Logic)');
   console.log('⏱️  Setting 30-second timeout to prevent infinite loops...');
-  
+
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => reject(new Error('Test timeout - preventing infinite loop')), 30000);
   });
-  
+
   try {
     const result = await Promise.race([
       jobRunner.execute(),
@@ -71,7 +71,7 @@ async function testDealerComOnly() {
       console.log('💡 Other error - but feature flag system is working!');
     }
   }
-  
+
   console.log('');
   console.log('🎉 Feature flag system validation complete!');
   console.log('');

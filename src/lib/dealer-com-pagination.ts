@@ -161,8 +161,10 @@ export async function fetchAllDealerComInventory(
         }
       }
 
-      // Check if we got a full page (more data available)
-      const hasMoreData = response.inventory && response.inventory.length === pageSize;
+      // Check if we've reached the total count or got less than a full page
+      const hasMoreData = response.inventory && 
+                         response.inventory.length === pageSize && 
+                         allVehicles.length < (totalCount || Infinity);
 
       if (hasMoreData) {
         pageStart += pageSize;
