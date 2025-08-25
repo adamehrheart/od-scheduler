@@ -78,41 +78,176 @@ export class DealerComJobRunner {
   }
 
   /**
-   * 🚀 REVOLUTIONARY: Call Dealer.com Master Inventory API
-   * This gets ALL vehicle data from ALL inventory types - no more individual page scraping!
+   * 🚀 REVOLUTIONARY: Call Dealer.com Master Inventory API with OPTIMAL APPROACH
+   * This gets ALL vehicle data using the PERFECT endpoint discovered!
    */
   private async callDealerComMasterInventoryAPI(dealer: any): Promise<any[]> {
     try {
       // Extract site ID from dealer domain
       const siteId = this.extractDealerComSiteId(dealer.domain);
 
-      console.log(`📡 Calling Dealer.com Master Inventory API for ALL inventory types with site ID: ${siteId}`);
+      console.log(`📡 Calling Dealer.com Master Inventory API with OPTIMAL approach for site ID: ${siteId}`);
 
-      // Define all inventory types to fetch
-      const inventoryTypes = [
-        {
-          name: 'NEW',
-          pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_NEW',
-          pageId: `${siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_NEW_V1_1`
+      // Use the PERFECT endpoint discovered from the search pages
+      const optimalVehicles = await this.tryOptimalEndpoint(siteId);
+
+      if (optimalVehicles.length >= 100) {
+        console.log(`🎉 OPTIMAL endpoint successful! Found ${optimalVehicles.length} vehicles`);
+        return optimalVehicles;
+      }
+
+      // Fallback to hybrid approach if optimal endpoint doesn't work
+      console.log(`⚠️ OPTIMAL endpoint only returned ${optimalVehicles.length} vehicles, falling back to hybrid approach`);
+      return await this.tryHybridApproach(siteId);
+
+    } catch (error) {
+      console.error('❌ Dealer.com Master Inventory API call failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Try the OPTIMAL endpoint discovered from search pages
+   */
+  private async tryOptimalEndpoint(siteId: string): Promise<any[]> {
+    console.log(`📡 Trying OPTIMAL endpoint with large page size...`);
+
+    try {
+      const response = await fetch('https://www.rsmhondaonline.com/api/widget/ws-inv-data/getInventory', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        {
-          name: 'USED',
-          pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_USED',
-          pageId: `${siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_USED_V1_1`
+        body: JSON.stringify({
+          siteId: siteId,
+          locale: 'en_US',
+          device: 'DESKTOP',
+          pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_ALL',
+          pageId: 'v9_INVENTORY_SEARCH_RESULTS_AUTO_ALL_V1_1',
+          windowId: 'inventory-data-bus2',
+          widgetName: 'ws-inv-data',
+          inventoryParameters: {
+            defaultRange: '5'
+          },
+          preferences: {
+            pageSize: '120',
+            rows: '120'  // Solr-specific parameter discovered from Porsche site
+          },
+          includePricing: true
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch optimal endpoint: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json() as any;
+
+      if (data.pageInfo) {
+        console.log(`📊 Optimal endpoint info: totalCount=${data.pageInfo.totalCount}, pageSize=${data.pageInfo.pageSize}`);
+      }
+
+      if (data.inventory && Array.isArray(data.inventory)) {
+        console.log(`✅ Optimal endpoint: ${data.inventory.length} vehicles`);
+        return data.inventory.map((vehicle: any) => this.transformDealerComVehicle(vehicle));
+      } else {
+        console.log(`⚠️ No inventory data found in optimal endpoint`);
+        return [];
+      }
+
+    } catch (error) {
+      console.log(`⚠️ Error fetching optimal endpoint:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Fallback to hybrid approach (MASTER + multi-inventory)
+   */
+  private async tryHybridApproach(siteId: string): Promise<any[]> {
+    console.log(`📡 Falling back to hybrid approach...`);
+
+    // Try MASTER endpoint first
+    const masterVehicles = await this.tryMasterEndpoint(siteId);
+
+    if (masterVehicles.length >= 80) {
+      console.log(`📊 MASTER endpoint returned ${masterVehicles.length} vehicles`);
+      return masterVehicles;
+    }
+
+    // Fallback to multi-inventory approach
+    console.log(`📡 MASTER endpoint insufficient, trying multi-inventory approach...`);
+    return await this.tryMultiInventoryApproach(siteId);
+  }
+
+  /**
+   * Try the MASTER endpoint with pagination
+   */
+  private async tryMasterEndpoint(siteId: string): Promise<any[]> {
+    const masterEndpoint = {
+      name: 'MASTER',
+      pageAlias: 'INVENTORY_LISTING_DEFAULT',
+      pageId: `${siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_V1_1`
+    };
+
+    const allVehicles: any[] = [];
+    let totalCount = 0;
+    let pageSize = 0;
+
+    // Fetch first page to get pagination info
+    try {
+      console.log(`📡 Fetching MASTER inventory page 0...`);
+
+      const firstPageResponse = await fetch('https://www.rsmhondaonline.com/api/widget/ws-inv-data/getInventory', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        {
-          name: 'CERTIFIED',
-          pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_CERTIFIED',
-          pageId: `${siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_CERTIFIED_V1_1`
-        }
-      ];
+        body: JSON.stringify({
+          siteId: siteId,
+          locale: 'en_US',
+          device: 'DESKTOP',
+          pageAlias: masterEndpoint.pageAlias,
+          pageId: masterEndpoint.pageId,
+          windowId: 'inventory-data-bus2',
+          widgetName: 'ws-inv-data',
+          inventoryParameters: {},
+          includePricing: true
+        })
+      });
 
-      const allVehicles: any[] = [];
+      if (!firstPageResponse.ok) {
+        throw new Error(`Failed to fetch first page: ${firstPageResponse.status} ${firstPageResponse.statusText}`);
+      }
 
-      // Fetch each inventory type
-      for (const inventoryType of inventoryTypes) {
+      const firstPageData = await firstPageResponse.json() as any;
+
+      if (firstPageData.pageInfo) {
+        totalCount = firstPageData.pageInfo.totalCount || 0;
+        pageSize = firstPageData.pageInfo.pageSize || 35;
+        console.log(`📊 Pagination info: totalCount=${totalCount}, pageSize=${pageSize}`);
+      }
+
+      if (firstPageData.inventory && Array.isArray(firstPageData.inventory)) {
+        console.log(`✅ First page: ${firstPageData.inventory.length} vehicles`);
+        allVehicles.push(...firstPageData.inventory);
+      }
+
+    } catch (error) {
+      console.log(`⚠️ Error fetching first page:`, error);
+      return allVehicles;
+    }
+
+    // Try to fetch additional pages (but don't fail if pagination doesn't work)
+    if (totalCount > pageSize) {
+      const totalPages = Math.ceil(totalCount / pageSize);
+      console.log(`📄 Attempting to fetch ${totalPages - 1} additional pages...`);
+
+      for (let page = 1; page < totalPages; page++) {
+        const pageStart = page * pageSize;
+
         try {
-          console.log(`📡 Fetching ${inventoryType.name} inventory...`);
+          console.log(`📡 Fetching MASTER inventory page ${page} (start: ${pageStart})...`);
 
           const response = await fetch('https://www.rsmhondaonline.com/api/widget/ws-inv-data/getInventory', {
             method: 'POST',
@@ -123,47 +258,114 @@ export class DealerComJobRunner {
               siteId: siteId,
               locale: 'en_US',
               device: 'DESKTOP',
-              pageAlias: inventoryType.pageAlias,
-              pageId: inventoryType.pageId,
+              pageAlias: masterEndpoint.pageAlias,
+              pageId: masterEndpoint.pageId,
               windowId: 'inventory-data-bus2',
               widgetName: 'ws-inv-data',
-              inventoryParameters: {},
+              inventoryParameters: {
+                pageStart: pageStart
+              },
               includePricing: true
             })
           });
 
           if (!response.ok) {
-            console.log(`⚠️ Failed to fetch ${inventoryType.name} inventory: ${response.status} ${response.statusText}`);
-            continue;
+            console.log(`⚠️ Failed to fetch page ${page}: ${response.status} ${response.statusText}`);
+            break; // Stop trying if pagination fails
           }
 
           const data = await response.json() as any;
 
           if (data.inventory && Array.isArray(data.inventory)) {
-            console.log(`✅ ${inventoryType.name} inventory: ${data.inventory.length} vehicles`);
+            console.log(`✅ Page ${page}: ${data.inventory.length} vehicles`);
             allVehicles.push(...data.inventory);
           } else {
-            console.log(`⚠️ No inventory data found for ${inventoryType.name}`);
+            console.log(`⚠️ No inventory data found for page ${page}`);
+            break;
           }
 
         } catch (error) {
-          console.log(`⚠️ Error fetching ${inventoryType.name} inventory:`, error);
+          console.log(`⚠️ Error fetching page ${page}:`, error);
+          break; // Stop trying if pagination fails
         }
       }
-
-      if (allVehicles.length === 0) {
-        throw new Error('No inventory data found in any Dealer.com API response');
-      }
-
-      console.log(`🎉 Dealer.com Master Inventory API successful! Found ${allVehicles.length} total vehicles across all inventory types`);
-
-      // Transform the data to our format
-      return allVehicles.map((vehicle: any) => this.transformDealerComVehicle(vehicle));
-
-    } catch (error) {
-      console.error('❌ Dealer.com Master Inventory API call failed:', error);
-      throw error;
     }
+
+    console.log(`📊 MASTER endpoint total: ${allVehicles.length} vehicles`);
+    return allVehicles.map((vehicle: any) => this.transformDealerComVehicle(vehicle));
+  }
+
+  /**
+   * Fallback to multi-inventory approach
+   */
+  private async tryMultiInventoryApproach(siteId: string): Promise<any[]> {
+    console.log(`📡 Falling back to multi-inventory approach...`);
+
+    // Define all inventory types to fetch
+    const inventoryTypes = [
+      {
+        name: 'NEW',
+        pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_NEW',
+        pageId: `${siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_NEW_V1_1`
+      },
+      {
+        name: 'USED',
+        pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_USED',
+        pageId: `${siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_USED_V1_1`
+      },
+      {
+        name: 'CERTIFIED',
+        pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_CERTIFIED',
+        pageId: `${siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_CERTIFIED_V1_1`
+      }
+    ];
+
+    const allVehicles: any[] = [];
+
+    // Fetch each inventory type
+    for (const inventoryType of inventoryTypes) {
+      try {
+        console.log(`📡 Fetching ${inventoryType.name} inventory...`);
+
+        const response = await fetch('https://www.rsmhondaonline.com/api/widget/ws-inv-data/getInventory', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            siteId: siteId,
+            locale: 'en_US',
+            device: 'DESKTOP',
+            pageAlias: inventoryType.pageAlias,
+            pageId: inventoryType.pageId,
+            windowId: 'inventory-data-bus2',
+            widgetName: 'ws-inv-data',
+            inventoryParameters: {},
+            includePricing: true
+          })
+        });
+
+        if (!response.ok) {
+          console.log(`⚠️ Failed to fetch ${inventoryType.name} inventory: ${response.status} ${response.statusText}`);
+          continue;
+        }
+
+        const data = await response.json() as any;
+
+        if (data.inventory && Array.isArray(data.inventory)) {
+          console.log(`✅ ${inventoryType.name} inventory: ${data.inventory.length} vehicles`);
+          allVehicles.push(...data.inventory);
+        } else {
+          console.log(`⚠️ No inventory data found for ${inventoryType.name}`);
+        }
+
+      } catch (error) {
+        console.log(`⚠️ Error fetching ${inventoryType.name} inventory:`, error);
+      }
+    }
+
+    console.log(`📊 Multi-inventory approach total: ${allVehicles.length} vehicles`);
+    return allVehicles.map((vehicle: any) => this.transformDealerComVehicle(vehicle));
   }
 
   /**
