@@ -12,18 +12,23 @@ export class DealerComJobRunner {
     const startTime = Date.now();
 
     try {
+      console.log('🚀 DealerComJobRunner: Starting REVOLUTIONARY Master Inventory API approach!');
+
       // Get dealer information from the database
       const dealer = await this.getDealerInfo();
       if (!dealer) {
         throw new Error(`Dealer not found: ${this.job.dealer_id}`);
       }
 
+      console.log(`📡 Calling Dealer.com Master Inventory API for ${dealer.name}...`);
+
+      // Call the REVOLUTIONARY Dealer.com Master Inventory API
+      const dealerComData = await this.callDealerComMasterInventoryAPI(dealer);
+
       // Get existing vehicles for this dealer
       const existingVehicles = await this.getExistingVehicles();
       if (existingVehicles.length === 0) {
-        // log('info', 'No existing vehicles found for dealer, skipping Dealer.com scraping', {
-        //   dealer_id: this.job.dealer_id
-        // });
+        console.log('ℹ️ No existing vehicles found for dealer, skipping Dealer.com enrichment');
         return {
           success: true,
           vehicles_found: 0,
@@ -32,37 +37,266 @@ export class DealerComJobRunner {
         };
       }
 
-      // Call the Dealer.com scraper to enrich vehicle data
-      const enrichedVehicles = await this.scrapeDealerComData(dealer, existingVehicles);
+      // Match VINs and create enriched data
+      const enrichedVehicles = await this.matchAndEnrichVehicles(dealerComData, existingVehicles);
 
       // Update vehicles with enriched data
       const updateResults = await this.updateVehiclesWithEnrichedData(enrichedVehicles);
 
       const duration = Date.now() - startTime;
 
-      // log('info', 'Dealer.com scraping job completed successfully', {
-      //   dealer_id: this.job.dealer_id,
-      //   vehicles_found: enrichedVehicles.length,
-      //   vehicles_updated: updateResults.updated,
-      //   duration_ms: duration
-      // });
+      console.log('🎉 Dealer.com Master Inventory API job completed successfully!', {
+        dealer_id: this.job.dealer_id,
+        dealer_name: dealer.name,
+        dealer_com_vehicles: dealerComData.length,
+        home_net_vehicles: existingVehicles.length,
+        matched_vehicles: enrichedVehicles.length,
+        vehicles_updated: updateResults.updated,
+        match_rate: `${((enrichedVehicles.length / existingVehicles.length) * 100).toFixed(1)}%`,
+        duration_ms: duration
+      });
 
       return {
         success: true,
-        vehicles_found: enrichedVehicles.length,
+        dealer_com_vehicles: dealerComData.length,
+        home_net_vehicles: existingVehicles.length,
+        matched_vehicles: enrichedVehicles.length,
         vehicles_updated: updateResults.updated,
+        match_rate: `${((enrichedVehicles.length / existingVehicles.length) * 100).toFixed(1)}%`,
         duration_ms: duration
       };
 
     } catch (error) {
       const duration = Date.now() - startTime;
-      // log('error', 'Dealer.com scraping job failed', {
-      //   dealer_id: this.job.dealer_id,
-      //   error: error instanceof Error ? error.message : String(error),
-      //   duration_ms: duration
-      // });
+      console.error('❌ Dealer.com Master Inventory API job failed:', {
+        dealer_id: this.job.dealer_id,
+        error: error instanceof Error ? error.message : String(error),
+        duration_ms: duration
+      });
       throw error;
     }
+  }
+
+  /**
+   * 🚀 REVOLUTIONARY: Call Dealer.com Master Inventory API
+   * This gets ALL vehicle data from ALL inventory types - no more individual page scraping!
+   */
+  private async callDealerComMasterInventoryAPI(dealer: any): Promise<any[]> {
+    try {
+      // Extract site ID from dealer domain
+      const siteId = this.extractDealerComSiteId(dealer.domain);
+
+      console.log(`📡 Calling Dealer.com Master Inventory API for ALL inventory types with site ID: ${siteId}`);
+
+      // Define all inventory types to fetch
+      const inventoryTypes = [
+        {
+          name: 'NEW',
+          pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_NEW',
+          pageId: `${siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_NEW_V1_1`
+        },
+        {
+          name: 'USED',
+          pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_USED',
+          pageId: `${siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_USED_V1_1`
+        },
+        {
+          name: 'CERTIFIED',
+          pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_CERTIFIED',
+          pageId: `${siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_CERTIFIED_V1_1`
+        }
+      ];
+
+      const allVehicles: any[] = [];
+
+      // Fetch each inventory type
+      for (const inventoryType of inventoryTypes) {
+        try {
+          console.log(`📡 Fetching ${inventoryType.name} inventory...`);
+
+          const response = await fetch('https://www.rsmhondaonline.com/api/widget/ws-inv-data/getInventory', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              siteId: siteId,
+              locale: 'en_US',
+              device: 'DESKTOP',
+              pageAlias: inventoryType.pageAlias,
+              pageId: inventoryType.pageId,
+              windowId: 'inventory-data-bus2',
+              widgetName: 'ws-inv-data',
+              inventoryParameters: {},
+              includePricing: true
+            })
+          });
+
+          if (!response.ok) {
+            console.log(`⚠️ Failed to fetch ${inventoryType.name} inventory: ${response.status} ${response.statusText}`);
+            continue;
+          }
+
+          const data = await response.json() as any;
+
+          if (data.inventory && Array.isArray(data.inventory)) {
+            console.log(`✅ ${inventoryType.name} inventory: ${data.inventory.length} vehicles`);
+            allVehicles.push(...data.inventory);
+          } else {
+            console.log(`⚠️ No inventory data found for ${inventoryType.name}`);
+          }
+
+        } catch (error) {
+          console.log(`⚠️ Error fetching ${inventoryType.name} inventory:`, error);
+        }
+      }
+
+      if (allVehicles.length === 0) {
+        throw new Error('No inventory data found in any Dealer.com API response');
+      }
+
+      console.log(`🎉 Dealer.com Master Inventory API successful! Found ${allVehicles.length} total vehicles across all inventory types`);
+
+      // Transform the data to our format
+      return allVehicles.map((vehicle: any) => this.transformDealerComVehicle(vehicle));
+
+    } catch (error) {
+      console.error('❌ Dealer.com Master Inventory API call failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extract Dealer.com site ID from dealer domain
+   * This maps dealer domains to their Dealer.com site IDs
+   */
+  private extractDealerComSiteId(domain: string): string {
+    // Map of known dealer domains to their Dealer.com site IDs
+    const dealerSiteIdMap: { [key: string]: string } = {
+      'rsmhondaonline.com': 'ranchosan29961santamargaritaparkway',
+      // Add more dealers as we discover them
+    };
+
+    // Try exact match first
+    if (dealerSiteIdMap[domain]) {
+      return dealerSiteIdMap[domain];
+    }
+
+    // Try partial match
+    for (const [dealerDomain, siteId] of Object.entries(dealerSiteIdMap)) {
+      if (domain.includes(dealerDomain) || dealerDomain.includes(domain)) {
+        return siteId;
+      }
+    }
+
+    // Default to RSM Honda for now (we'll expand this)
+    console.log(`⚠️ No site ID mapping found for domain: ${domain}, using default`);
+    return 'ranchosan29961santamargaritaparkway';
+  }
+
+  /**
+   * Transform Dealer.com vehicle data to our format
+   * This extracts all the rich data from the Dealer.com API response
+   */
+  private transformDealerComVehicle(vehicle: any): any {
+    return {
+      vin: vehicle.vin,
+      dealer_page_url: `https://www.rsmhondaonline.com${vehicle.link}`,
+
+      // 🎯 CRITICAL FIELDS (previously NULL from HomeNet)
+      transmission: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'transmission')?.value || null,
+      drivetrain: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'driveLine')?.value || null,
+      body_style: vehicle.bodyStyle || null,
+
+      // Vehicle details
+      stock_number: vehicle.stockNumber || null,
+      year: vehicle.year || null,
+      make: vehicle.make || null,
+      model: vehicle.model || null,
+      trim: vehicle.trim || null,
+      fuel_type: vehicle.fuelType || null,
+
+      // Performance and efficiency
+      mileage: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'odometer')?.value || null,
+      city_mpg: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'cityFuelEconomy')?.value || null,
+      highway_mpg: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'highwayFuelEconomy')?.value || null,
+      combined_mpg: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'combinedFuelEfficiency')?.value || null,
+
+      // Colors
+      exterior_color: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'exteriorColor')?.value || null,
+      interior_color: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'interiorColor')?.value || null,
+
+      // Engine
+      engine: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'engine')?.value || null,
+      engine_size: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'engineSize')?.value || null,
+
+      // Pricing
+      msrp: vehicle.trackingPricing?.msrp || null,
+      internet_price: vehicle.trackingPricing?.internetPrice || null,
+
+      // Media
+      images: vehicle.images?.map((img: any) => img.uri) || [],
+
+      // Equipment and specifications
+      equipment: vehicle.equipment || [],
+
+      // Incentives
+      incentives: vehicle.incentiveIds || [],
+
+      // Additional metadata
+      uuid: vehicle.uuid || null,
+      chrome_id: vehicle.chromeId || null,
+      model_code: vehicle.modelCode || null,
+      inventory_date: vehicle.inventoryDate || null,
+      off_site: vehicle.offSite || false,
+      status: vehicle.status || null,
+      type: vehicle.type || null
+    };
+  }
+
+  /**
+   * Match VINs between Dealer.com data and HomeNet vehicles
+   * This is the key to 100% accurate data enrichment
+   */
+  private async matchAndEnrichVehicles(dealerComVehicles: any[], existingVehicles: any[]): Promise<any[]> {
+    console.log(`🎯 Matching VINs: ${dealerComVehicles.length} Dealer.com vehicles vs ${existingVehicles.length} HomeNet vehicles`);
+
+    // Create a map of VIN to Dealer.com data for fast lookup
+    const dealerComMap = new Map();
+    dealerComVehicles.forEach(vehicle => {
+      if (vehicle.vin) {
+        dealerComMap.set(vehicle.vin, vehicle);
+      }
+    });
+
+    const enrichedVehicles = [];
+    let matchedCount = 0;
+    let unmatchedCount = 0;
+
+    for (const existingVehicle of existingVehicles) {
+      const dealerComData = dealerComMap.get(existingVehicle.vin);
+
+      if (dealerComData) {
+        matchedCount++;
+        enrichedVehicles.push({
+          ...existingVehicle,
+          ...dealerComData,
+          // Preserve existing HomeNet data that Dealer.com doesn't have
+          description: existingVehicle.description,
+          mileage: existingVehicle.mileage || dealerComData.mileage,
+          price: existingVehicle.price || dealerComData.internet_price
+        });
+
+        console.log(`✅ Matched: ${existingVehicle.vin} - ${existingVehicle.year} ${existingVehicle.make} ${existingVehicle.model}`);
+      } else {
+        unmatchedCount++;
+        console.log(`❌ Unmatched: ${existingVehicle.vin} - ${existingVehicle.year} ${existingVehicle.make} ${existingVehicle.model}`);
+      }
+    }
+
+    console.log(`📊 VIN Matching Results: ${matchedCount} matched, ${unmatchedCount} unmatched (${((matchedCount / existingVehicles.length) * 100).toFixed(1)}% success rate)`);
+
+    return enrichedVehicles;
   }
 
   private async getDealerInfo(): Promise<any> {
@@ -98,142 +332,12 @@ export class DealerComJobRunner {
     return data || [];
   }
 
-  private async scrapeDealerComData(dealer: any, existingVehicles: any[]): Promise<any[]> {
-    // For now, return mock enriched data to test the pipeline
-    // This will be replaced with actual Dealer.com scraping logic later
-    console.log(`🔍 Mock Dealer.com scraping for ${existingVehicles.length} vehicles from ${dealer.name}`);
-
-    const mockEnrichedVehicles = existingVehicles.map((vehicle: any) => {
-      // Extract vehicle specifications from existing data
-      const extractedSpecs = this.extractVehicleSpecifications(vehicle);
-
-      return {
-        vin: vehicle.vin,
-        // Pricing data
-        price: Math.floor(Math.random() * 5000) + 25000, // Mock dealer price
-        monthly_payment: Math.floor(Math.random() * 500) + 300, // Mock monthly payment
-        down_payment: Math.floor(Math.random() * 2000) + 1000, // Mock down payment
-        msrp: Math.floor(Math.random() * 3000) + 35000, // Mock MSRP
-
-        // Vehicle specifications (extracted from existing data)
-        transmission: extractedSpecs.transmission,
-        drivetrain: extractedSpecs.drivetrain,
-        body_style: extractedSpecs.body_style,
-
-        // Availability and inventory
-        availability_status: 'In Stock',
-        days_in_inventory: Math.floor(Math.random() * 30) + 1,
-        offsite_location: Math.random() > 0.8, // 20% chance of being offsite
-        expected_arrival_date: Math.random() > 0.9 ? new Date(Date.now() + Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString() : null,
-
-        // Features and specifications
-        features: ['Bluetooth', 'Backup Camera', 'Navigation', 'Sunroof', 'Alloy Wheels'],
-        comfort_features: ['Heated Seats', 'Leather Interior', 'Dual Zone Climate Control', 'Power Driver Seat'],
-        safety_features: ['Blind Spot Monitoring', 'Lane Departure Warning', 'Forward Collision Warning', 'Rear Cross Traffic Alert'],
-        technology_features: ['Apple CarPlay', 'Android Auto', 'Wireless Charging', 'USB Ports'],
-        factory_options: ['Premium Audio System', 'Navigation Package', 'Technology Package'],
-        option_packages: ['Sport Package', 'Convenience Package'],
-        key_features: ['Low Mileage', 'One Owner', 'Clean Carfax', 'Certified Pre-Owned'],
-
-        // Vehicle details
-        condition: 'Used',
-        certified: Math.random() > 0.5, // 50% chance of being certified
-        vehicle_category: ['SUV', 'Sedan', 'Hatchback', 'Crossover'][Math.floor(Math.random() * 4)],
-        passenger_capacity: Math.floor(Math.random() * 3) + 5, // 5-7 passengers
-
-        // Performance and efficiency
-        city_mpg: Math.floor(Math.random() * 10) + 20, // 20-30 mpg city
-        highway_mpg: Math.floor(Math.random() * 15) + 25, // 25-40 mpg highway
-        combined_mpg: Math.floor(Math.random() * 12) + 22, // 22-34 mpg combined
-
-        // Engine specifications
-        engine_size: ['2.0L', '2.5L', '3.0L', '3.5L'][Math.floor(Math.random() * 4)],
-        engine_cylinder_count: [4, 6][Math.floor(Math.random() * 2)],
-        engine_specification: ['Turbocharged', 'Naturally Aspirated', 'Hybrid'][Math.floor(Math.random() * 3)],
-
-        // Dealer information
-        dealer_page_url: `https://${dealer.domain || 'example.com'}/inventory/${vehicle.vin}`,
-        dealer_highlights: 'Great deal! Low miles, excellent condition. One owner, clean history.',
-        incentives: ['$500 Cash Back', '0% APR Financing', 'Trade-in Bonus', 'Military Discount'],
-        financing_available: true,
-        warranty_details: 'Certified Pre-Owned Warranty - 7 years/100,000 miles powertrain coverage',
-        carfax_report_url: `https://www.carfax.com/vehicle/${vehicle.vin}`,
-
-        // Additional media
-        video_links: Math.random() > 0.7 ? [`https://${dealer.domain || 'example.com'}/videos/${vehicle.vin}.mp4`] : [],
-        action_buttons: ['Schedule Test Drive', 'Get Pre-Approved', 'Request More Info', 'Trade-In Value']
-      };
-    });
-
-    console.log(`✅ Mock scraping completed for ${mockEnrichedVehicles.length} vehicles`);
-    return mockEnrichedVehicles;
-  }
-
-  /**
-   * Extract vehicle specifications from existing vehicle data
-   * This simulates what real Dealer.com scraping would provide
-   */
-  private extractVehicleSpecifications(vehicle: any): { transmission: string | null, drivetrain: string | null, body_style: string | null } {
-    const { make, model, description, trim } = vehicle;
-
-    // Initialize with null values
-    let transmission: string | null = null;
-    let drivetrain: string | null = null;
-    let body_style: string | null = null;
-
-    // Extract body style from model name (most reliable)
-    if (model) {
-      const modelLower = model.toLowerCase();
-      if (modelLower.includes('sedan')) body_style = 'Sedan';
-      else if (modelLower.includes('suv')) body_style = 'SUV';
-      else if (modelLower.includes('hatchback')) body_style = 'Hatchback';
-      else if (modelLower.includes('wagon')) body_style = 'Wagon';
-      else if (modelLower.includes('coupe')) body_style = 'Coupe';
-      else if (modelLower.includes('convertible')) body_style = 'Convertible';
-      else if (modelLower.includes('pickup') || modelLower.includes('truck')) body_style = 'Truck';
-      else if (modelLower.includes('van')) body_style = 'Van';
-      else if (modelLower.includes('crossover')) body_style = 'Crossover';
-    }
-
-    // Extract transmission and drivetrain from description
-    if (description) {
-      const descLower = description.toLowerCase();
-
-      // Transmission patterns - prioritize user-friendly terms
-      if (descLower.includes('manual') || descLower.includes('stick') || descLower.includes('manual transmission')) {
-        transmission = 'Manual';
-      } else if (descLower.includes('automatic') || descLower.includes('auto') || descLower.includes('automatic transmission') || descLower.includes('cvt')) {
-        // CVT is a type of automatic transmission, so group it with automatic for user searches
-        transmission = 'Automatic';
-      }
-
-      // Drivetrain patterns
-      if (descLower.includes('awd') || descLower.includes('all-wheel drive')) {
-        drivetrain = 'AWD';
-      } else if (descLower.includes('fwd') || descLower.includes('front-wheel drive')) {
-        drivetrain = 'FWD';
-      } else if (descLower.includes('rwd') || descLower.includes('rear-wheel drive')) {
-        drivetrain = 'RWD';
-      } else if (descLower.includes('4wd') || descLower.includes('four-wheel drive')) {
-        drivetrain = '4WD';
-      }
-    }
-
-    // No fallback - leave as null if we don't have real data
-    // This ensures data integrity and avoids misleading assumptions
-
-    // No fallback - leave as null if we don't have real data
-    // This ensures data integrity and avoids misleading assumptions
-
-    return { transmission, drivetrain, body_style };
-  }
-
   private async updateVehiclesWithEnrichedData(enrichedVehicles: any[]): Promise<{ updated: number }> {
     if (enrichedVehicles.length === 0) {
       return { updated: 0 };
     }
 
-    console.log(`🔄 Updating ${ enrichedVehicles.length } vehicles with enriched data...`);
+    console.log(`🔄 Updating ${enrichedVehicles.length} vehicles with REVOLUTIONARY Dealer.com data...`);
 
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
@@ -242,71 +346,35 @@ export class DealerComJobRunner {
 
     for (const enrichedVehicle of enrichedVehicles) {
       try {
-        console.log(`  🔄 Updating vehicle ${ enrichedVehicle.vin }...`);
+        console.log(`  🔄 Updating vehicle ${enrichedVehicle.vin} with rich Dealer.com data...`);
 
-        // Update vehicle with enriched data, focusing on dealer-specific fields
+        // Update vehicle with REVOLUTIONARY Dealer.com data
         const updateData = {
-          // Vehicle specifications (from Dealer.com scraping)
+          // 🎯 CRITICAL FIELDS (previously NULL from HomeNet)
           transmission: enrichedVehicle.transmission || null,
           drivetrain: enrichedVehicle.drivetrain || null,
           body_style: enrichedVehicle.body_style || null,
 
-          // Pricing (dealer-specific)
-          price: enrichedVehicle.price || null,
-          monthly_payment: enrichedVehicle.monthly_payment || null,
-          down_payment: enrichedVehicle.down_payment || null,
-          msrp: enrichedVehicle.msrp || null,
-
-          // Availability (dealer-specific)
-          availability_status: enrichedVehicle.availability_status || null,
-          days_in_inventory: enrichedVehicle.days_in_inventory || null,
-          offsite_location: enrichedVehicle.offsite_location || false,
-          expected_arrival_date: enrichedVehicle.expected_arrival_date || null,
-
-          // Features (enriched from dealer site) - these are arrays
-          features: enrichedVehicle.features || [],
-          comfort_features: enrichedVehicle.comfort_features || [],
-          safety_features: enrichedVehicle.safety_features || [],
-          technology_features: enrichedVehicle.technology_features || [],
-          factory_options: enrichedVehicle.factory_options || [],
-          option_packages: enrichedVehicle.option_packages || [],
-          key_features: enrichedVehicle.key_features || [],
-
-          // Vehicle details
-          condition: enrichedVehicle.condition || null,
-          certified: enrichedVehicle.certified || false,
-          vehicle_category: enrichedVehicle.vehicle_category || null,
-          passenger_capacity: enrichedVehicle.passenger_capacity || null,
-
-          // Performance and efficiency
-          city_mpg: enrichedVehicle.city_mpg || null,
-          highway_mpg: enrichedVehicle.highway_mpg || null,
-          combined_mpg: enrichedVehicle.combined_mpg || null,
-
-          // Engine specifications
-          engine_size: enrichedVehicle.engine_size || null,
-          engine_cylinder_count: enrichedVehicle.engine_cylinder_count || null,
-          engine_specification: enrichedVehicle.engine_specification || null,
-
-          // Dealer-specific information
+          // Dealer.com specific data
           dealer_page_url: enrichedVehicle.dealer_page_url || null,
-          dealer_highlights: enrichedVehicle.dealer_highlights ? [enrichedVehicle.dealer_highlights] : [],
-          carfax_report_url: enrichedVehicle.carfax_report_url || null,
+          stock_number: enrichedVehicle.stock_number || null,
+          fuel_type: enrichedVehicle.fuel_type || null,
 
-          // Incentives and financing
-          incentives: enrichedVehicle.incentives || [],
-          financing_available: enrichedVehicle.financing_available || false,
-          warranty_details: enrichedVehicle.warranty_details || null,
+          // Performance and efficiency (from Dealer.com)
+          city_mpg: enrichedVehicle.city_mpg ? Math.round(parseFloat(enrichedVehicle.city_mpg)) : null,
+          highway_mpg: enrichedVehicle.highway_mpg ? Math.round(parseFloat(enrichedVehicle.highway_mpg)) : null,
+          combined_mpg: enrichedVehicle.combined_mpg ? Math.round(parseFloat(enrichedVehicle.combined_mpg)) : null,
 
-          // Additional media and actions
-          video_links: enrichedVehicle.video_links || [],
-          action_buttons: enrichedVehicle.action_buttons || [],
+          // Engine (from Dealer.com)
+          engine_size: enrichedVehicle.engine_size || null,
+
+          // Pricing (from Dealer.com) - convert formatted strings to numbers
+          msrp: enrichedVehicle.msrp ? parseInt(enrichedVehicle.msrp.replace(/[$,]/g, '')) : null,
+          price: (enrichedVehicle.internet_price || enrichedVehicle.price) ? parseInt((enrichedVehicle.internet_price || enrichedVehicle.price).replace(/[$,]/g, '')) : null,
 
           // Update timestamp
           updated_at: new Date().toISOString()
         };
-
-        console.log(`    📝 Update data: `, updateData);
 
         const { error } = await supabase
           .from('vehicles')
@@ -315,18 +383,21 @@ export class DealerComJobRunner {
           .eq('vin', enrichedVehicle.vin);
 
         if (error) {
-          console.log(`    ❌ Failed to update vehicle ${ enrichedVehicle.vin }: `, error.message);
+          console.log(`    ❌ Failed to update vehicle ${enrichedVehicle.vin}: `, error.message);
         } else {
-          console.log(`    ✅ Successfully updated vehicle ${ enrichedVehicle.vin } `);
+          console.log(`    ✅ Successfully updated vehicle ${enrichedVehicle.vin} with REVOLUTIONARY data!`);
+          console.log(`       Transmission: ${enrichedVehicle.transmission || 'NULL'} → ${updateData.transmission || 'NULL'}`);
+          console.log(`       Drivetrain: ${enrichedVehicle.drivetrain || 'NULL'} → ${updateData.drivetrain || 'NULL'}`);
+          console.log(`       Body Style: ${enrichedVehicle.body_style || 'NULL'} → ${updateData.body_style || 'NULL'}`);
           updatedCount++;
         }
 
       } catch (error) {
-        console.log(`    ❌ Error updating vehicle ${ enrichedVehicle.vin }: `, error instanceof Error ? error.message : String(error));
+        console.log(`    ❌ Error updating vehicle ${enrichedVehicle.vin}: `, error instanceof Error ? error.message : String(error));
       }
     }
 
-    console.log(`✅ Vehicle update complete: ${ updatedCount }/${enrichedVehicles.length} vehicles updated`);
-return { updated: updatedCount };
+    console.log(`🎉 REVOLUTIONARY update complete: ${updatedCount}/${enrichedVehicles.length} vehicles updated with rich Dealer.com data!`);
+    return { updated: updatedCount };
   }
 }
