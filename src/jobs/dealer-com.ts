@@ -1,5 +1,7 @@
 import { ScheduledJob } from '../types.js';
 import { env } from '../env.js';
+import { useDealerComOnly, getCurrentConfig } from '../config/dealer-sources.js';
+import { fetchAllDealerComInventory, DealerComPaginationConfig, getPaginationStats } from '../lib/dealer-com-pagination.js';
 
 export class DealerComJobRunner {
   private job: ScheduledJob;
@@ -12,7 +14,8 @@ export class DealerComJobRunner {
     const startTime = Date.now();
 
     try {
-      console.log('🚀 DealerComJobRunner: Starting REVOLUTIONARY Master Inventory API approach!');
+      console.log('🚀 DealerComJobRunner: Starting with feature flags!');
+      console.log('📋 Current configuration:', getCurrentConfig());
 
       // Get dealer information from the database
       const dealer = await this.getDealerInfo();
@@ -20,6 +23,93 @@ export class DealerComJobRunner {
         throw new Error(`Dealer not found: ${this.job.dealer_id}`);
       }
 
+      // Check if we should use Dealer.com-only approach
+      if (useDealerComOnly()) {
+        console.log('🎯 Using Dealer.com-only approach');
+        return await this.executeDealerComOnly(dealer);
+      } else {
+        console.log('🔄 Using multi-source approach (existing logic)');
+        return await this.executeMultiSource(dealer);
+      }
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error('❌ Dealer.com job failed:', {
+        dealer_id: this.job.dealer_id,
+        error: error instanceof Error ? error.message : String(error),
+        duration_ms: duration
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Execute Dealer.com-only approach with pagination
+   */
+  private async executeDealerComOnly(dealer: any): Promise<any> {
+    const startTime = Date.now();
+
+    try {
+      console.log(`📡 Fetching all Dealer.com inventory for ${dealer.name} with pagination...`);
+
+      // Configure Dealer.com pagination
+      const config: DealerComPaginationConfig = {
+        siteId: this.extractDealerComSiteId(dealer.domain),
+        baseUrl: `https://${dealer.domain}`,
+        pageSize: 100,
+        maxPages: 10
+      };
+
+      // Fetch all vehicles using pagination
+      const allVehicles = await fetchAllDealerComInventory(config, (level, message, data) => {
+        console.log(`[${level.toUpperCase()}] ${message}`, data);
+      });
+
+      // Transform and store vehicles
+      const transformedVehicles = allVehicles.map(vehicle => this.transformDealerComVehicle(vehicle));
+
+      // Store vehicles in database
+      const storedVehicles = await this.storeVehicles(transformedVehicles);
+
+      const duration = Date.now() - startTime;
+      const stats = getPaginationStats(allVehicles.length, config.pageSize || 100);
+
+      console.log('🎉 Dealer.com-only approach completed successfully!', {
+        dealer_id: this.job.dealer_id,
+        dealer_name: dealer.name,
+        total_vehicles: allVehicles.length,
+        stored_vehicles: storedVehicles.length,
+        pagination_stats: stats,
+        duration_ms: duration
+      });
+
+      return {
+        success: true,
+        approach: 'dealer_com_only',
+        total_vehicles: allVehicles.length,
+        stored_vehicles: storedVehicles.length,
+        pagination_stats: stats,
+        duration_ms: duration
+      };
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error('❌ Dealer.com-only approach failed:', {
+        dealer_id: this.job.dealer_id,
+        error: error instanceof Error ? error.message : String(error),
+        duration_ms: duration
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Execute multi-source approach (existing logic)
+   */
+  private async executeMultiSource(dealer: any): Promise<any> {
+    const startTime = Date.now();
+
+    try {
       console.log(`📡 Calling Dealer.com Master Inventory API for ${dealer.name}...`);
 
       // Call the REVOLUTIONARY Dealer.com Master Inventory API
@@ -68,7 +158,7 @@ export class DealerComJobRunner {
 
     } catch (error) {
       const duration = Date.now() - startTime;
-      console.error('❌ Dealer.com Master Inventory API job failed:', {
+      console.error('❌ Multi-source approach failed:', {
         dealer_id: this.job.dealer_id,
         error: error instanceof Error ? error.message : String(error),
         duration_ms: duration
