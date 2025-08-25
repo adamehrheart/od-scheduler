@@ -219,21 +219,11 @@ export class DealerComJobRunner {
       }
     }
 
-    // Fallback logic - default to Automatic for most modern vehicles
-    if (!transmission) {
-      transmission = 'Automatic';
-    }
+    // No fallback - leave as null if we don't have real data
+    // This ensures data integrity and avoids misleading assumptions
 
-    if (!drivetrain) {
-      if (make?.toLowerCase() === 'honda') {
-        // Honda typically FWD for sedans, AWD for SUVs
-        if (body_style === 'SUV') {
-          drivetrain = 'AWD';
-        } else {
-          drivetrain = 'FWD';
-        }
-      }
-    }
+    // No fallback - leave as null if we don't have real data
+    // This ensures data integrity and avoids misleading assumptions
 
     return { transmission, drivetrain, body_style };
   }
