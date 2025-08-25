@@ -61,12 +61,12 @@ export class DealerComJobRunner {
       };
 
       // Fetch all vehicles using pagination
-      const allVehicles = await fetchAllDealerComInventory(config, (level, message, data) => {
+      const allVehicles = await fetchAllDealerComInventory(config, (level: string, message: string, data?: any) => {
         console.log(`[${level.toUpperCase()}] ${message}`, data);
       });
 
       // Transform and store vehicles
-      const transformedVehicles = allVehicles.map(vehicle => this.transformDealerComVehicle(vehicle));
+      const transformedVehicles = allVehicles.map((vehicle: any) => this.transformDealerComVehicle(vehicle));
 
       // Store vehicles in database
       const storedVehicles = await this.storeVehicles(transformedVehicles);
@@ -691,5 +691,74 @@ export class DealerComJobRunner {
 
     console.log(`🎉 REVOLUTIONARY update complete: ${updatedCount}/${enrichedVehicles.length} vehicles updated with rich Dealer.com data!`);
     return { updated: updatedCount };
+  }
+
+  /**
+   * Store vehicles directly from Dealer.com (Dealer.com-only approach)
+   */
+  private async storeVehicles(vehicles: any[]): Promise<any[]> {
+    if (vehicles.length === 0) {
+      return [];
+    }
+
+    console.log(`💾 Storing ${vehicles.length} vehicles from Dealer.com...`);
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
+
+    let storedCount = 0;
+    const storedVehicles = [];
+
+    for (const vehicle of vehicles) {
+      try {
+        // Prepare vehicle data for storage
+        const vehicleData = {
+          vin: vehicle.vin,
+          dealer_id: this.job.dealer_id,
+          make: vehicle.make,
+          model: vehicle.model,
+          year: vehicle.year,
+          trim: vehicle.trim,
+          stock_number: vehicle.stock_number,
+          transmission: vehicle.transmission,
+          drivetrain: vehicle.drivetrain,
+          body_style: vehicle.body_style,
+          fuel_type: vehicle.fuel_type,
+          mileage: vehicle.mileage,
+          price: vehicle.price,
+          msrp: vehicle.msrp,
+          exterior_color: vehicle.exterior_color,
+          interior_color: vehicle.interior_color,
+          dealer_page_url: vehicle.dealer_page_url,
+          images: vehicle.images,
+          source: 'dealer_com_only',
+          updated_at: new Date().toISOString()
+        };
+
+        // Use upsert to handle both insert and update
+        const { data, error } = await supabase
+          .from('vehicles')
+          .upsert(vehicleData, {
+            onConflict: 'dealer_id,vin',
+            ignoreDuplicates: false
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.log(`    ❌ Failed to store vehicle ${vehicle.vin}: `, error.message);
+        } else {
+          console.log(`    ✅ Successfully stored vehicle ${vehicle.vin}`);
+          storedVehicles.push(data);
+          storedCount++;
+        }
+
+      } catch (error) {
+        console.log(`    ❌ Error storing vehicle ${vehicle.vin}: `, error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    console.log(`🎉 Storage complete: ${storedCount}/${vehicles.length} vehicles stored from Dealer.com!`);
+    return storedVehicles;
   }
 }

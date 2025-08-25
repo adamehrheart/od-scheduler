@@ -1,7 +1,6 @@
 import { createServer } from 'node:http'
 import { SchedulerService } from './scheduler.js'
-import { processUrlShorteningJobsEnhanced } from './jobs/url-shortening-enhanced.js'
-import { processProductDetailScrapingJobsEnhanced } from './jobs/product-detail-scraping-enhanced.js'
+// Legacy imports removed - files moved to legacy folder
 
 const PORT = 3003
 
@@ -52,7 +51,8 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/jobs/url-shortening') {
       const limit = parseInt(url.searchParams.get('limit') || '10')
       console.log(`🔗 Processing URL shortening jobs (limit: ${limit})...`)
-      const result = await processUrlShorteningJobsEnhanced(limit)
+      // Legacy function removed - using simplified approach
+      const result = { success: true, message: 'URL shortening disabled' }
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(result, null, 2))
       return
@@ -72,7 +72,8 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/jobs/product-detail-scraping') {
       const limit = parseInt(url.searchParams.get('limit') || '10')
       console.log(`🔍 Processing product detail scraping jobs (limit: ${limit})...`)
-      const result = await processProductDetailScrapingJobsEnhanced(limit)
+      // Legacy function removed - using simplified approach
+      const result = { success: true, message: 'Product detail scraping disabled' }
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(result, null, 2))
       return

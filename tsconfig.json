@@ -1,8 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "module": "ESNext",
+    "moduleResolution": "bundler",
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
@@ -17,9 +20,19 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
-  "include": ["src/**/*", "api/**/*"],
-  "exclude": ["node_modules", ".vercel", "dist"]
+  "include": [
+    "src/**/*",
+    "api/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    ".vercel",
+    "dist",
+    "src/jobs/legacy/**/*"
+  ]
 }

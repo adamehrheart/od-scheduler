@@ -1,9 +1,6 @@
 import { getSupabaseClient, shouldRunJob, calculateNextRun, logInfo, logSuccess, logError, createPerformanceTimer } from './utils.js'
-import { HomeNetJobRunner } from './jobs/homenet.js'
 import { DealerComJobRunner } from './jobs/dealer-com.js'
-import { processUrlShorteningJobs } from './jobs/url-shortening.js'
-import { processSitemapJobs } from './jobs/sitemap-processor.js'
-import { processProductDetailScrapingJobs } from './jobs/product-detail-scraping.js'
+// Legacy imports removed - files moved to legacy folder
 import type { ScheduledJob, JobExecution, JobResult, RunJobsRequest, RunJobsResponse } from './types.js'
 
 /**
@@ -256,8 +253,25 @@ export class SchedulerService {
       // Route to appropriate job runner based on platform
       switch (job.platform) {
         case 'homenet':
-          const homenetRunner = new HomeNetJobRunner(job)
-          execution = await homenetRunner.execute()
+          // HomeNet processing disabled - using Dealer.com-only approach
+          console.log('HomeNet processing disabled - using Dealer.com-only approach')
+          execution = {
+            id: job.id,
+            job_id: job.id,
+            dealer_id: job.dealer_id,
+            platform: job.platform,
+            status: 'skipped',
+            start_time: new Date(),
+            end_time: new Date(),
+            vehicles_found: 0,
+            vehicles_processed: 0,
+            performance_metrics: {
+              duration_ms: 0,
+              api_calls: 0,
+              rate_limits_hit: 0
+            },
+            created_at: new Date()
+          }
           break
 
         case 'dealer.com':
@@ -342,7 +356,7 @@ export class SchedulerService {
     try {
       logInfo('Starting URL shortening job processing', { maxJobs })
 
-      const result = await processUrlShorteningJobs(maxJobs)
+      const result = await this.processUrlShorteningJobs(maxJobs)
 
       logSuccess('URL shortening job processing completed', {
         processed: result.processed,
@@ -379,7 +393,7 @@ export class SchedulerService {
     try {
       logInfo('Starting sitemap job processing', { maxJobs })
 
-      const result = await processSitemapJobs(maxJobs)
+      const result = await this.processSitemapJobs(maxJobs)
 
       logSuccess('Sitemap job processing completed', {
         processed: result.processed,
@@ -416,7 +430,7 @@ export class SchedulerService {
     try {
       logInfo('Starting product detail scraping job processing', { maxJobs })
 
-      const result = await processProductDetailScrapingJobs(maxJobs)
+      const result = await this.processProductDetailScrapingJobs(maxJobs)
 
       logSuccess('Product detail scraping job processing completed', {
         processed: result.processed,

@@ -16,8 +16,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { env } from '../env.js';
-import { EnhancedErrorHandler, executeJobWithErrorHandling } from './enhanced-error-handling.js';
-import { HomeNetJobRunner } from './homenet.js';
+// Legacy imports removed - files moved to legacy folder
 import { DealerComJobRunner } from './dealer-com.js';
 import { getSupabaseClient } from '../utils.js';
 
@@ -64,7 +63,7 @@ interface MultiDealerProcessingStats {
 }
 
 export class MultiDealerDependencyManager {
-    private errorHandler: EnhancedErrorHandler;
+    // Simplified error handling without legacy dependencies
     private dependencyGraph: DependencyGraph;
     private processingStats: MultiDealerProcessingStats;
     private maxConcurrentDealers: number;
@@ -74,7 +73,7 @@ export class MultiDealerDependencyManager {
         maxConcurrentDealers: number = 3,
         maxConcurrentJobsPerDealer: number = 2
     ) {
-        this.errorHandler = new EnhancedErrorHandler();
+        // Simplified constructor without legacy dependencies
         this.dependencyGraph = { nodes: new Map(), edges: [], cycles: [] };
         this.processingStats = {
             totalJobs: 0,
@@ -486,13 +485,13 @@ export class MultiDealerDependencyManager {
             throw new Error(`Unknown job type: ${job.job_type}`);
         }
 
-        return executeJobWithErrorHandling(
-            job.id,
-            job.job_type,
-            jobFunction,
-            this.errorHandler,
-            console.log
-        );
+        // Simplified job execution without legacy error handling
+        try {
+            return await jobFunction();
+        } catch (error) {
+            console.error(`Job execution failed: ${error instanceof Error ? error.message : String(error)}`);
+            throw error;
+        }
     }
 
     /**
@@ -518,10 +517,9 @@ export class MultiDealerDependencyManager {
             payload: job.payload
         };
 
-        const runner = new HomeNetJobRunner(jobForRunner);
-        const result = await runner.execute();
-
-        return result;
+        // HomeNet processing disabled - using Dealer.com-only approach
+        console.log('HomeNet processing disabled - using Dealer.com-only approach');
+        return { success: true, message: 'HomeNet processing disabled' };
     }
 
     private async processDealerComJob(job: any): Promise<any> {
