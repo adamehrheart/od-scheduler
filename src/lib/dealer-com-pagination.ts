@@ -63,7 +63,9 @@ async function fetchDealerComPage(
     pageId: "v9_INVENTORY_SEARCH_RESULTS_AUTO_ALL_V1_1",
     windowId: "inventory-data-bus2",
     widgetName: "ws-inv-data",
-    inventoryParameters: {},
+    inventoryParameters: {
+      defaultRange: '5'  // Filter for Honda vehicles only
+    },
     preferences: {
       pageSize: pageSize.toString(),
       pageStart: pageStart.toString()
