@@ -199,13 +199,12 @@ export class DealerComJobRunner {
     if (description) {
       const descLower = description.toLowerCase();
 
-      // Transmission patterns
-      if (descLower.includes('automatic') || descLower.includes('auto')) {
-        transmission = 'Automatic';
-      } else if (descLower.includes('manual') || descLower.includes('stick')) {
+      // Transmission patterns - prioritize user-friendly terms
+      if (descLower.includes('manual') || descLower.includes('stick') || descLower.includes('manual transmission')) {
         transmission = 'Manual';
-      } else if (descLower.includes('cvt')) {
-        transmission = 'CVT';
+      } else if (descLower.includes('automatic') || descLower.includes('auto') || descLower.includes('automatic transmission') || descLower.includes('cvt')) {
+        // CVT is a type of automatic transmission, so group it with automatic for user searches
+        transmission = 'Automatic';
       }
 
       // Drivetrain patterns
@@ -220,14 +219,9 @@ export class DealerComJobRunner {
       }
     }
 
-    // Fallback logic based on make/model patterns
+    // Fallback logic - default to Automatic for most modern vehicles
     if (!transmission) {
-      if (make?.toLowerCase() === 'honda') {
-        // Honda typically uses CVT for most models
-        transmission = 'CVT';
-      } else if (make?.toLowerCase() === 'toyota') {
-        transmission = 'Automatic';
-      }
+      transmission = 'Automatic';
     }
 
     if (!drivetrain) {
