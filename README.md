@@ -1,11 +1,11 @@
 # Open Dealer Scheduler Service
 
-A serverless scheduling service built on Vercel that manages data pull jobs for the Open Dealer platform. This service orchestrates the execution of scheduled jobs for fetching vehicle inventory from various platforms like HomeNet, Dealer.com, and web scraping.
+A serverless scheduling service built on Vercel that manages data pull jobs for the Open Dealer platform. This service orchestrates the execution of scheduled jobs for fetching vehicle inventory from Dealer.com with our breakthrough multi-config inventory segmentation approach.
 
 ## 🚀 Features
 
 - **Automated Scheduling**: Cron-based job execution daily at 9 AM
-- **Multi-Platform Support**: HomeNet, Dealer.com, Web Scraping, VinSolutions, DealerSocket, Cobalt
+- **Dealer.com Integration**: Direct API with multi-config inventory segmentation breakthrough
 - **Concurrency Control**: Parallel job execution with rate limiting
 - **Comprehensive Monitoring**: Job status tracking and performance metrics
 - **Automatic Cleanup**: Daily cleanup of old execution records at 2 AM

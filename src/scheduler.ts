@@ -253,26 +253,7 @@ export class SchedulerService {
       // Route to appropriate job runner based on platform
       switch (job.platform) {
         case 'homenet':
-          // HomeNet processing disabled - using Dealer.com-only approach
-          console.log('HomeNet processing disabled - using Dealer.com-only approach')
-          execution = {
-            id: job.id,
-            job_id: job.id,
-            dealer_id: job.dealer_id,
-            platform: job.platform,
-            status: 'skipped',
-            start_time: new Date(),
-            end_time: new Date(),
-            vehicles_found: 0,
-            vehicles_processed: 0,
-            performance_metrics: {
-              duration_ms: 0,
-              api_calls: 0,
-              rate_limits_hit: 0
-            },
-            created_at: new Date()
-          }
-          break
+          throw new Error('HomeNet platform archived - use dealer.com approach')
 
         case 'dealer.com':
           const dealerComRunner = new DealerComJobRunner(job)
@@ -454,113 +435,6 @@ export class SchedulerService {
   }
 }
 
-import { MultiDealerDependencyManager } from './jobs/multi-dealer-dependency-manager.js';
 
-/**
- * Check if job dependencies are met (per-dealer)
- * This function can be used by individual job processors to check dependencies
- * 
- * @deprecated Use MultiDealerDependencyManager for advanced dependency checking
- */
-export async function checkJobDependencies(job: any): Promise<boolean> {
-  const supabase = getSupabaseClient();
-  const dealerId = job.payload.dealer_id;
 
-  if (!dealerId) {
-    console.warn(`Job ${job.id} has no dealer_id, skipping dependency check`);
-    return true;
-  }
-
-  // HomeNet jobs can always run (no dependencies)
-  if (job.job_type === 'homenet_feed') {
-    return true;
-  }
-
-  // Dealer.com and scraping jobs need THIS DEALER'S HomeNet to have run first
-  if (job.job_type === 'dealer_com_feed' || job.job_type === 'product_detail_scraping') {
-    const { data: homenetJobs } = await supabase
-      .from('job_queue')
-      .select('id, status, created_at')
-      .eq('job_type', 'homenet_feed')
-      .eq('dealer_id', dealerId) // Only check THIS dealer's HomeNet job
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (!homenetJobs || homenetJobs.length === 0) {
-      console.log(`Job ${job.id} (${job.job_type}) waiting for HomeNet job for dealer ${dealerId}`);
-      return false; // No HomeNet job found for this dealer
-    }
-
-    const homenetJob = homenetJobs[0];
-    if (homenetJob.status !== 'completed') {
-      console.log(`Job ${job.id} (${job.job_type}) waiting for HomeNet job ${homenetJob.id} to complete (status: ${homenetJob.status})`);
-      return false;
-    }
-
-    console.log(`Job ${job.id} (${job.job_type}) dependencies met - HomeNet job ${homenetJob.id} completed`);
-    return true;
-  }
-
-  // URL shortening jobs need THIS DEALER'S product detail scraping to have run
-  if (job.job_type === 'url_shortening') {
-    const { data: scrapingJobs } = await supabase
-      .from('job_queue')
-      .select('status, created_at')
-      .eq('job_type', 'product_detail_scraping')
-      .eq('dealer_id', dealerId) // Only check THIS dealer's scraping job
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (!scrapingJobs || scrapingJobs.length === 0) {
-      console.log(`Job ${job.id} (${job.job_type}) waiting for product detail scraping job for dealer ${dealerId}`);
-      return false; // No scraping job found for this dealer
-    }
-
-    const scrapingJob = scrapingJobs[0];
-    if (scrapingJob.status !== 'completed') {
-      console.log(`Job ${job.id} (${job.job_type}) waiting for scraping job to complete (status: ${scrapingJob.status})`);
-      return false;
-    }
-
-    console.log(`Job ${job.id} (${job.job_type}) dependencies met - scraping job completed`);
-    return true;
-  }
-
-  return true; // Default to allowing the job
-}
-
-/**
- * Enhanced multi-dealer job processing with dependency management
- */
-export async function processMultiDealerJobs(limit: number = 10): Promise<any> {
-  const timer = createPerformanceTimer();
-
-  try {
-    logInfo('Starting multi-dealer job processing', { limit });
-
-    const dependencyManager = new MultiDealerDependencyManager(3, 2); // 3 concurrent dealers, 2 jobs per dealer
-    const stats = await dependencyManager.processMultiDealerJobs(limit);
-
-    logSuccess('Multi-dealer job processing completed', {
-      ...stats,
-      execution_time_ms: timer.getDurationMs()
-    });
-
-    return stats;
-
-  } catch (error) {
-    logError('Multi-dealer job processing failed', error);
-
-    return {
-      totalJobs: 0,
-      processedJobs: 0,
-      successfulJobs: 0,
-      failedJobs: 1,
-      blockedJobs: 0,
-      processingTimeMs: timer.getDurationMs(),
-      dealersProcessed: [],
-      dependencyViolations: 0,
-      error: error instanceof Error ? error.message : String(error)
-    };
-  }
-}
+// Complex dependency management removed - using simple Dealer.com-first approach
