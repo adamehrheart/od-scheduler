@@ -12,6 +12,7 @@ export interface DealerComPaginationConfig {
   baseUrl: string;
   pageSize?: number;
   maxPages?: number;
+  usePageNumber?: boolean; // fallback mode for rooftops that ignore pageStart offsets
 }
 
 export interface DealerComVehicle {
@@ -51,27 +52,56 @@ export interface DealerComInventoryResponse {
 async function fetchDealerComPage(
   config: DealerComPaginationConfig,
   pageStart: number = 0,
-  logFunction?: (level: string, message: string, data?: any) => void
+  logFunction?: (level: string, message: string, data?: any) => void,
+  sortDirection: 'ASC' | 'DESC' = 'ASC'
 ): Promise<DealerComInventoryResponse> {
   const pageSize = config.pageSize || DEALER_SOURCES.pagination.dealer_com_page_size;
 
-  const requestBody = {
-    siteId: config.siteId,
-    locale: "en_US",
-    device: "DESKTOP",
-    pageAlias: "INVENTORY_LISTING_DEFAULT_AUTO_ALL",
-    pageId: "v9_INVENTORY_SEARCH_RESULTS_AUTO_ALL_V1_1",
-    windowId: "inventory-data-bus2",
-    widgetName: "ws-inv-data",
-    inventoryParameters: {
-      defaultRange: '5'  // Filter for Honda vehicles only
+  // Build request bodies per guidance (Widget variants with page/pageSize)
+  const pageNumber = Math.floor(pageStart / pageSize) + 1;
+  const widgetVariants = [
+    {
+      pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_NEW',
+      pageId: `${config.siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_NEW_V1_1`
     },
+    {
+      pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_ALL',
+      pageId: 'v9_INVENTORY_SEARCH_RESULTS_AUTO_ALL_V1_1'
+    }
+  ];
+  const buildBodyVariantA = (variant: { pageAlias: string; pageId: string }) => ({
+    siteId: config.siteId,
+    locale: 'en_US',
+    device: 'DESKTOP',
+    pageAlias: variant.pageAlias,
+    pageId: variant.pageId,
+    windowId: 'inventory-data-bus2',
+    widgetName: 'ws-inv-data',
+    includePricing: true,
+    inventoryParameters: {
+      page: pageNumber,
+      pageSize: pageSize,
+      sort: { field: 'vin', direction: sortDirection }
+    }
+  });
+  // Fallback body using preferences.pageStart/pageSize (works on some rooftops)
+  const buildBodyPreferences = (variant: { pageAlias: string; pageId: string }) => ({
+    siteId: config.siteId,
+    locale: 'en_US',
+    device: 'DESKTOP',
+    pageAlias: variant.pageAlias,
+    pageId: variant.pageId,
+    windowId: 'inventory-data-bus2',
+    widgetName: 'ws-inv-data',
+    includePricing: true,
+    inventoryParameters: {},
     preferences: {
       pageSize: pageSize.toString(),
-      pageStart: pageStart.toString()
-    },
-    includePricing: true
-  };
+      ...(config.usePageNumber
+        ? { page: pageNumber.toString() }
+        : { pageStart: pageStart.toString() })
+    }
+  });
 
   logFunction?.('info', `Fetching Dealer.com page ${pageStart / pageSize + 1}`, {
     pageStart,
@@ -80,16 +110,27 @@ async function fetchDealerComPage(
   });
 
   try {
-    const response = await fetch(`${config.baseUrl}/api/widget/ws-inv-data/getInventory`, {
+    const cacheBuster = Date.now();
+    // Try variant A with NEW widget, then ALL, then fallback to preferences body
+    const tryFetch = async (body: any) => fetch(`${config.baseUrl}/api/widget/ws-inv-data/getInventory?cb=${cacheBuster}&sort=${sortDirection}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
     });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    let response: Response | undefined;
+    for (const w of widgetVariants) {
+      const a = buildBodyVariantA(w);
+      response = await tryFetch(a);
+      if (response && response.ok) break;
+      logFunction?.('warn', 'Variant A failed for widget, trying preferences', { status: response ? response.status : undefined, widget: w.pageAlias });
+      const p = buildBodyPreferences(w);
+      response = await tryFetch(p);
+      if (response && response.ok) break;
+    }
+    if (!response || !response.ok) {
+      const status = response ? response.status : 'no_response';
+      const statusText = response ? response.statusText : 'no response received';
+      throw new Error(`HTTP ${status}: ${statusText}`);
     }
 
     const data = await response.json() as DealerComInventoryResponse;
@@ -118,96 +159,184 @@ async function fetchDealerComPage(
 }
 
 /**
+ * Probe the maximum effective page size supported by the rooftop
+ * Tries a list of candidates and returns the largest that the server respects
+ */
+async function probeMaxPageSize(
+  baseConfig: DealerComPaginationConfig,
+  candidates: number[],
+  logFunction?: (level: string, message: string, data?: any) => void
+): Promise<number> {
+  for (const candidate of candidates) {
+    const testConfig: DealerComPaginationConfig = { ...baseConfig, pageSize: candidate };
+    try {
+      const res = await fetchDealerComPage(testConfig, 0, logFunction);
+      const len = res.inventory?.length || 0;
+      logFunction?.('info', 'Probed page size candidate', { candidate, returned: len });
+      if (len === candidate) {
+        return candidate;
+      }
+      // If server caps at smaller number (e.g., 100 when asking 120), treat that as hard cap
+      if (len > 0 && len < candidate) {
+        return len;
+      }
+    } catch (e) {
+      // Ignore and try next candidate
+      logFunction?.('warn', 'Page size probe failed, trying next', { candidate });
+    }
+  }
+  // Fallback to default
+  return baseConfig.pageSize || DEALER_SOURCES.pagination.dealer_com_page_size;
+}
+
+/**
  * Fetch all Dealer.com inventory using pagination
  */
 export async function fetchAllDealerComInventory(
   config: DealerComPaginationConfig,
   logFunction?: (level: string, message: string, data?: any) => void
 ): Promise<{ vehicles: DealerComVehicle[], totalCount: number }> {
+  logFunction?.('info', 'Starting Dealer.com inventory fetch with multi-config strategy', {
+    siteId: config.siteId
+  });
+
+  const seenVins = new Set<string>();
+  const allVehicles: DealerComVehicle[] = [];
+  let totalCount = 0;
+
+  // Fetch different inventory segments
+  const listingConfigs = ['auto-new', 'auto-certified', 'auto-used'];
+  let grandTotalCount = 0;
+
+  try {
+    for (const listingConfigId of listingConfigs) {
+      logFunction?.('info', `Fetching ${listingConfigId} inventory...`);
+
+      const response = await fetchDealerComPageWithConfig(
+        { ...config, pageSize: 200 },
+        0,
+        logFunction,
+        'ASC',
+        listingConfigId
+      );
+
+      const items = response.inventory || [];
+      const segmentTotal = response.pageInfo?.totalCount || 0;
+      let addedFromSegment = 0;
+
+      for (const vehicle of items) {
+        const vin = (vehicle as any).vin;
+        if (vin && !seenVins.has(vin)) {
+          seenVins.add(vin);
+          allVehicles.push(vehicle);
+          addedFromSegment++;
+        }
+      }
+
+      logFunction?.('info', `${listingConfigId} segment complete`, {
+        segmentVehicles: items.length,
+        segmentTotal,
+        addedFromSegment,
+        totalAccumulated: allVehicles.length
+      });
+
+      grandTotalCount += segmentTotal;
+    }
+
+    logFunction?.('info', 'Dealer.com multi-config inventory fetch complete', {
+      totalVehicles: allVehicles.length,
+      grandTotalCount,
+      coverage: `${((allVehicles.length / grandTotalCount) * 100).toFixed(1)}%`,
+      siteId: config.siteId
+    });
+
+    return { vehicles: allVehicles, totalCount: grandTotalCount };
+  } catch (error) {
+    logFunction?.('error', 'Error fetching inventory', {
+      error: error instanceof Error ? error.message : error,
+      siteId: config.siteId
+    });
+    throw error;
+  }
+}
+
+/**
+ * Fetch Dealer.com inventory with specific listing config
+ */
+async function fetchDealerComPageWithConfig(
+  config: DealerComPaginationConfig,
+  pageStart: number = 0,
+  logFunction?: (level: string, message: string, data?: any) => void,
+  sortDirection: 'ASC' | 'DESC' = 'ASC',
+  listingConfigId: string = 'auto-new'
+): Promise<DealerComInventoryResponse> {
   const pageSize = config.pageSize || DEALER_SOURCES.pagination.dealer_com_page_size;
-  const maxPages = config.maxPages || DEALER_SOURCES.pagination.max_pages;
 
-  let allVehicles: DealerComVehicle[] = [];
-  let pageStart = 0;
-  let currentPage = 0;
-  let totalCount: number | undefined;
+  // Build request body with specific listing config
+  const pageNumber = Math.floor(pageStart / pageSize) + 1;
+  const buildBody = () => ({
+    siteId: config.siteId,
+    locale: 'en_US',
+    device: 'DESKTOP',
+    pageAlias: 'INVENTORY_LISTING_DEFAULT_AUTO_NEW',
+    pageId: `${config.siteId}_SITEBUILDER_INVENTORY_SEARCH_RESULTS_AUTO_NEW_V1_1`,
+    windowId: 'inventory-data-bus1',
+    widgetName: 'ws-inv-data',
+    includePricing: true,
+    inventoryParameters: {},
+    preferences: {
+      pageSize: pageSize.toString(),
+      "listing.config.id": listingConfigId,
+      ...(config.usePageNumber
+        ? { page: pageNumber.toString() }
+        : { pageStart: pageStart.toString() })
+    }
+  });
 
-  logFunction?.('info', 'Starting Dealer.com pagination', {
+  logFunction?.('info', `Fetching ${listingConfigId} page ${pageStart / pageSize + 1}`, {
+    pageStart,
     pageSize,
-    maxPages,
+    listingConfigId,
     siteId: config.siteId
   });
 
   try {
-    do {
-      currentPage++;
+    const cacheBuster = Date.now();
+    const url = `${config.baseUrl}/api/widget/ws-inv-data/getInventory?cb=${cacheBuster}`;
 
-      if (currentPage > maxPages) {
-        logFunction?.('warn', `Reached maximum pages limit (${maxPages})`, {
-          totalVehicles: allVehicles.length,
-          maxPages,
-          siteId: config.siteId
-        });
-        break;
-      }
-
-      const response = await fetchDealerComPage(config, pageStart, logFunction);
-
-      if (response.inventory && response.inventory.length > 0) {
-        allVehicles.push(...response.inventory);
-
-        // Update total count from first page
-        if (currentPage === 1 && response.pageInfo?.totalCount) {
-          totalCount = response.pageInfo.totalCount;
-          logFunction?.('info', `Total inventory count: ${totalCount}`, { siteId: config.siteId });
-        }
-      }
-
-      // Check if we've reached the total count or got less than a full page
-      const hasMoreData = response.inventory &&
-        response.inventory.length === pageSize &&
-        allVehicles.length < (totalCount || 0);
-
-      if (hasMoreData) {
-        pageStart += pageSize;
-        logFunction?.('info', `More data available, continuing to next page`, {
-          currentPage,
-          vehiclesSoFar: allVehicles.length,
-          totalCount
-        });
-      } else {
-        logFunction?.('info', `No more data available, pagination complete`, {
-          currentPage,
-          totalVehicles: allVehicles.length,
-          totalCount
-        });
-        break;
-      }
-
-    } while (true);
-
-    // Trim vehicles to actual total count if we over-fetched
-    const finalVehicles = totalCount && allVehicles.length > totalCount 
-      ? allVehicles.slice(0, totalCount) 
-      : allVehicles;
-
-    logFunction?.('info', 'Dealer.com pagination complete', {
-      totalPages: currentPage,
-      totalVehicles: finalVehicles.length,
-      expectedTotal: totalCount,
-      overFetched: allVehicles.length - (totalCount || 0),
-      siteId: config.siteId
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildBody())
     });
 
-    return {
-      vehicles: finalVehicles,
-      totalCount: totalCount || 0
-    };
+    if (!response || !response.ok) {
+      const status = response ? response.status : 'no_response';
+      const statusText = response ? response.statusText : 'no response received';
+      throw new Error(`HTTP ${status}: ${statusText}`);
+    }
 
+    const data = await response.json() as DealerComInventoryResponse;
+
+    if (data.error) {
+      throw new Error(`Dealer.com API error: ${data.error}`);
+    }
+
+    logFunction?.('info', `Retrieved ${data.inventory?.length || 0} ${listingConfigId} vehicles`, {
+      pageStart,
+      pageSize,
+      listingConfigId,
+      totalInPage: data.inventory?.length || 0,
+      totalCount: data.pageInfo?.totalCount
+    });
+
+    return data;
   } catch (error) {
-    logFunction?.('error', 'Dealer.com pagination failed', {
+    logFunction?.('error', `Failed to fetch ${listingConfigId} page ${pageStart / pageSize + 1}`, {
       error: error instanceof Error ? error.message : String(error),
-      vehiclesRetrieved: allVehicles.length,
+      pageStart,
+      pageSize,
+      listingConfigId,
       siteId: config.siteId
     });
     throw error;
