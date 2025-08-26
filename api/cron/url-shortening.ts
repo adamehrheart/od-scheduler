@@ -1,6 +1,6 @@
 /**
  * URL Shortening Job Processor - Cron Endpoint
- * 
+ *
  * This endpoint is called by Vercel cron to process URL shortening jobs
  * from the job_queue table. It runs every 5 minutes to handle the
  * asynchronous URL shortening workflow.

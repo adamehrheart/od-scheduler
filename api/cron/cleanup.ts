@@ -3,11 +3,11 @@ import { createSupabaseClientFromEnv, logInfo, logError, createPerformanceTimer 
 
 /**
  * Vercel Cron Job Endpoint - Cleanup
- * 
+ *
  * This endpoint is called by Vercel's cron job system daily at 2 AM
  * to perform cleanup operations like removing old job executions
  * and maintaining database performance.
- * 
+ *
  * Cron Schedule: 0 2 * * * (daily at 2 AM)
  */
 export default async function handler(
@@ -15,7 +15,7 @@ export default async function handler(
   res: VercelResponse
 ) {
   const timer = createPerformanceTimer()
-  
+
   try {
     logInfo('Cleanup cron job triggered')
 
@@ -92,7 +92,7 @@ export default async function handler(
 
   } catch (error) {
     logError('Cleanup cron job failed', error)
-    
+
     res.status(500).json({
       success: false,
       message: 'Cleanup operation failed',

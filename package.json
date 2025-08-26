@@ -8,12 +8,13 @@
     "dev": "npm run build && doppler run -- node dist/src/dev-server.js",
     "dev:vercel": "vercel dev",
     "build": "tsc",
+    "clean": "rm -rf dist",
     "deploy": "vercel --prod",
     "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint src/**/*.ts",
     "type-check": "tsc --noEmit",
-    "queue:manage": "doppler run -- node scripts/manage-job-queue.mjs",
-    "queue:process-multi-dealer": "doppler run -- node scripts/process-multi-dealer-jobs.mjs"
+    "test:dealer-com": "doppler run -- node scripts/test-dealer-com-job-execution.mjs"
   },
   "dependencies": {
     "@adamehrheart/schema": "^0.1.6",

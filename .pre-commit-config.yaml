@@ -1,0 +1,59 @@
+repos:
+  - repo: local
+    hooks:
+      - id: typescript-check
+        name: TypeScript Compilation Check
+        entry: npm run type-check
+        language: system
+        pass_filenames: false
+        files: \.(ts|tsx)$
+
+      - id: variable-naming
+        name: Variable Naming Standards
+        entry: bash -c 'cd ../od-standards && ./scripts/check-variable-naming.sh'
+        language: system
+        pass_filenames: false
+        files: \.(ts|tsx|js)$
+
+      - id: function-naming
+        name: Function Naming Standards
+        entry: bash -c 'cd ../od-standards && ./scripts/check-function-naming.sh'
+        language: system
+        pass_filenames: false
+        files: \.(ts|tsx)$
+
+      - id: jsdoc-documentation
+        name: JSDoc Documentation Required
+        entry: bash -c 'cd ../od-standards && ./scripts/check-jsdoc-documentation.sh'
+        language: system
+        pass_filenames: false
+        files: \.(ts|tsx)$
+
+      - id: console-usage
+        name: No Console.log in Production
+        entry: bash -c 'cd ../od-standards && ./scripts/check-console-usage.sh'
+        language: system
+        pass_filenames: false
+        files: \.(ts|tsx|js)$
+
+      - id: file-length
+        name: File Length Standards
+        entry: bash -c 'cd ../od-standards && ./scripts/check-file-length.sh'
+        language: system
+        pass_filenames: false
+        files: \.(ts|tsx|js)$
+
+      - id: environment-patterns
+        name: Environment Variable Standards
+        entry: bash -c 'cd ../od-standards && ./scripts/check-environment-patterns.sh'
+        language: system
+        pass_filenames: false
+        files: \.(ts|tsx|js)$
+
+      - id: trailing-whitespace
+        name: Trim Trailing Whitespace
+        entry: sed -i '' 's/[[:space:]]*$//'
+        language: system
+        files: \.(ts|tsx|js|json|yaml|yml|md)$
+
+fail_fast: true

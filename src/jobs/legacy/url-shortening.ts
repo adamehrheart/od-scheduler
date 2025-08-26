@@ -1,9 +1,9 @@
 /**
  * URL Shortening Worker
- * 
+ *
  * Processes URL shortening jobs from the job_queue table.
  * Creates Rebrandly short links for vehicle dealer URLs with verification.
- * 
+ *
  * Features:
  * - URL verification before shortening
  * - Retry logic with exponential backoff

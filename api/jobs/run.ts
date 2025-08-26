@@ -4,10 +4,10 @@ import { logInfo, logError } from '@adamehrheart/utils'
 
 /**
  * Manual Job Execution Endpoint
- * 
+ *
  * Allows manual execution of scheduled jobs for testing or on-demand runs.
  * Supports filtering by dealer_id and platform.
- * 
+ *
  * Usage:
  * POST /api/jobs/run
  * {

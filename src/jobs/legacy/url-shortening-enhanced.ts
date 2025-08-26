@@ -1,6 +1,6 @@
 /**
  * Enhanced URL Shortening Worker with Conflict Resolution
- * 
+ *
  * Processes URL shortening jobs from the job_queue table with improved error handling.
  * Features:
  * - Slashtag conflict resolution with fallback strategies

@@ -1,6 +1,6 @@
 /**
  * Dealer Data Sources Configuration
- * 
+ *
  * This file manages which data sources are enabled and their priority.
  * We can switch between multi-source and Dealer.com-only approaches using environment variables.
  */

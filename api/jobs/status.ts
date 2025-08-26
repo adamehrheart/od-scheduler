@@ -3,10 +3,10 @@ import { createSupabaseClientFromEnv, logInfo, logError } from '@adamehrheart/ut
 
 /**
  * Job Status Monitoring Endpoint
- * 
+ *
  * Provides status information about recent job executions
  * and overall system health.
- * 
+ *
  * Usage:
  * GET /api/jobs/status?dealer_id=optional&platform=optional&limit=50
  */

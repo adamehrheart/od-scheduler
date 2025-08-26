@@ -440,7 +440,7 @@ function calculateVehicleUrlMatchScore(vehicle: any, url: string): number {
     if (urlLower.includes('/new/')) {
         score += 0.1; // New vehicles
     } else if (urlLower.includes('/used/')) {
-        score += 0.1; // Used vehicles  
+        score += 0.1; // Used vehicles
     } else if (urlLower.includes('/certified/')) {
         score += 0.1; // Certified vehicles
     }

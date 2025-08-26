@@ -1,6 +1,6 @@
 /**
  * Enhanced Error Handling for Job Queue System
- * 
+ *
  * Provides robust error handling, retry logic, and circuit breaker patterns
  * for all job types in the Open Dealer scheduler.
  */
@@ -25,7 +25,7 @@ export interface JobError {
 export class EnhancedErrorHandler {
   private supabase = createSupabaseClientFromEnv();
   private circuitBreakerState: Map<string, { failures: number; lastFailure: number; open: boolean }> = new Map();
-  
+
   private defaultConfig: ErrorHandlingConfig = {
     maxRetries: 3,
     baseDelayMs: 1000,
@@ -99,15 +99,15 @@ export class EnhancedErrorHandler {
       case 'url_shortening':
         // Retry on rate limits, but not on validation errors
         return errorStr.includes('rate limit') || errorStr.includes('429') || errorStr.includes('temporary');
-      
+
       case 'dealer_com_feed':
         // Retry on server errors, but not on authentication errors
         return errorStr.includes('500') || errorStr.includes('503') || errorStr.includes('temporary');
-      
+
       case 'product_detail_scraping':
         // Retry on network issues, but not on data validation errors
         return errorStr.includes('timeout') || errorStr.includes('network') || errorStr.includes('econnreset');
-      
+
       default:
         return errorStr.includes('500') || errorStr.includes('503') || errorStr.includes('temporary');
     }
@@ -132,7 +132,7 @@ export class EnhancedErrorHandler {
     if (errorStr.includes('rate limit') || errorStr.includes('429')) return 'rate_limit';
     if (errorStr.includes('already exists')) return 'duplicate';
     if (errorStr.includes('invalid format')) return 'validation';
-    
+
     return 'unknown';
   }
 
@@ -200,7 +200,7 @@ export class EnhancedErrorHandler {
    */
   getCircuitBreakerStatus(): Record<string, any> {
     const status: Record<string, any> = {};
-    
+
     for (const [key, state] of this.circuitBreakerState.entries()) {
       status[key] = {
         failures: state.failures,
@@ -208,7 +208,7 @@ export class EnhancedErrorHandler {
         lastFailure: state.lastFailure ? new Date(state.lastFailure).toISOString() : null
       };
     }
-    
+
     return status;
   }
 }
@@ -237,10 +237,10 @@ export async function executeJobWithErrorHandling<T>(
 
     // Execute the job
     const result = await jobFunction();
-    
+
     // Record success for circuit breaker
     errorHandler.recordSuccess(jobType, null);
-    
+
     // Mark job as completed
     await supabase
       .from('job_queue')
@@ -264,9 +264,9 @@ export async function executeJobWithErrorHandling<T>(
 
     const attempts = jobData?.attempts || 0;
     const maxAttempts = jobData?.max_attempts || 3;
-    
+
     const jobError = errorHandler.analyzeError(error, jobType, attempts + 1);
-    
+
     // Record failure for circuit breaker
     errorHandler.recordFailure(jobType, error);
 
@@ -288,14 +288,14 @@ export async function executeJobWithErrorHandling<T>(
           error: jobError.message
         })
         .eq('id', jobId);
-      
+
       return { success: false, error: jobError };
     }
 
     if (jobError.type === 'retryable' && attempts < maxAttempts) {
       // Schedule for retry
       const retryAt = new Date(Date.now() + (jobError.retryAfterMs || 5000));
-      
+
       await supabase
         .from('job_queue')
         .update({
@@ -305,12 +305,12 @@ export async function executeJobWithErrorHandling<T>(
           scheduled_at: retryAt.toISOString()
         })
         .eq('id', jobId);
-      
+
       logFunction('info', `Job ${jobId} scheduled for retry`, {
         retryAt: retryAt.toISOString(),
         attempt: attempts + 1
       });
-      
+
       return { success: false, error: jobError };
     }
 
@@ -323,7 +323,7 @@ export async function executeJobWithErrorHandling<T>(
         error: jobError.message
       })
       .eq('id', jobId);
-    
+
     return { success: false, error: jobError };
   }
 }

@@ -1,6 +1,6 @@
 /**
  * Enhanced Product Detail Scraping with Robust Error Handling
- * 
+ *
  * Processes product detail scraping jobs with improved error handling and null checks.
  * Features:
  * - Comprehensive null/undefined checks
@@ -183,7 +183,7 @@ async function processProductDetailScrapingForDealerEnhanced(
 
     // If no URLs provided, fetch them from the database with proper null checks
     let urlsToProcess: string[] = [];
-    
+
     if (!urls || urls.length === 0) {
       logFunction('info', 'No URLs provided, fetching from vehicles table', { dealerId: dealer_id });
 
@@ -204,16 +204,16 @@ async function processProductDetailScrapingForDealerEnhanced(
           .map(v => v.dealer_page_url);
       }
 
-      logFunction('info', 'Fetched URLs from vehicles table', { 
-        dealerId: dealer_id, 
+      logFunction('info', 'Fetched URLs from vehicles table', {
+        dealerId: dealer_id,
         urlCount: urlsToProcess.length,
         totalVehicles: vehicles?.length || 0
       });
     } else {
       // Use provided URLs with validation
       urlsToProcess = urls.filter(url => url && typeof url === 'string' && url.trim() !== '');
-      logFunction('info', 'Using provided URLs', { 
-        dealerId: dealer_id, 
+      logFunction('info', 'Using provided URLs', {
+        dealerId: dealer_id,
         urlCount: urlsToProcess.length,
         originalCount: urls.length
       });
@@ -230,9 +230,9 @@ async function processProductDetailScrapingForDealerEnhanced(
       };
     }
 
-    logFunction('info', 'Starting product detail scraping', { 
-      dealerId: dealer_id, 
-      urlCount: urlsToProcess.length 
+    logFunction('info', 'Starting product detail scraping', {
+      dealerId: dealer_id,
+      urlCount: urlsToProcess.length
     });
 
     const results: ScrapedResult[] = [];
@@ -240,7 +240,7 @@ async function processProductDetailScrapingForDealerEnhanced(
     // Process URLs with concurrency control and error handling
     for (let i = 0; i < urlsToProcess.length; i += finalConfig.maxConcurrency) {
       const batch = urlsToProcess.slice(i, i + finalConfig.maxConcurrency);
-      
+
       // Process batch with individual error handling
       const batchPromises = batch.map(async (url) => {
         try {
@@ -259,7 +259,7 @@ async function processProductDetailScrapingForDealerEnhanced(
       });
 
       const batchResults = await Promise.allSettled(batchPromises);
-      
+
       // Extract results from Promise.allSettled
       batchResults.forEach((result, index) => {
         if (result.status === 'fulfilled') {
@@ -293,9 +293,9 @@ async function processProductDetailScrapingForDealerEnhanced(
     let vehiclesEnriched = 0;
     if (finalConfig.updateDatabase && successfulResults.length > 0) {
       vehiclesEnriched = await updateVehiclesWithScrapedDataEnhanced(
-        supabase, 
-        dealer_id, 
-        successfulResults, 
+        supabase,
+        dealer_id,
+        successfulResults,
         logFunction
       );
     }
@@ -310,7 +310,7 @@ async function processProductDetailScrapingForDealerEnhanced(
 
   } catch (error: any) {
     const errorMessage = error?.message || error?.toString() || 'Unknown error';
-    logFunction('error', 'Product detail scraping failed', { 
+    logFunction('error', 'Product detail scraping failed', {
       error: errorMessage,
       dealerId: dealer_id,
       stack: error?.stack
@@ -326,7 +326,7 @@ async function processProductDetailScrapingForDealerEnhanced(
  * Enhanced product detail page scraping with better error handling
  */
 async function scrapeProductDetailPageEnhanced(
-  url: string, 
+  url: string,
   config: any
 ): Promise<ScrapedResult> {
   try {
@@ -337,7 +337,7 @@ async function scrapeProductDetailPageEnhanced(
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-    
+
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; OpenDealer-Bot/1.0)',
@@ -349,7 +349,7 @@ async function scrapeProductDetailPageEnhanced(
       },
       signal: controller.signal,
     });
-    
+
     clearTimeout(timeoutId);
 
     if (!response.ok) {
@@ -357,7 +357,7 @@ async function scrapeProductDetailPageEnhanced(
     }
 
     const html = await response.text();
-    
+
     if (!html || html.trim() === '') {
       throw new Error('Empty HTML response');
     }
@@ -430,7 +430,7 @@ async function scrapeProductDetailPageEnhanced(
 
     // Create vehicle object from extracted data
     const vehicle = createVehicleFromExtractedData(result.extractedData, url);
-    
+
     if (vehicle) {
       result.success = true;
       result.vehicle = vehicle;
@@ -453,14 +453,14 @@ async function scrapeProductDetailPageEnhanced(
  * Create vehicle object from extracted data with proper validation
  */
 function createVehicleFromExtractedData(
-  extractedData: any, 
+  extractedData: any,
   url: string
 ): ScrapedVehicle | null {
   try {
     // Try JSON-LD first (most reliable)
     if (extractedData?.jsonLd) {
       const jsonLd = extractedData.jsonLd;
-      
+
       // Validate required fields
       if (jsonLd.name || jsonLd.brand?.name || jsonLd.model) {
         return {
@@ -501,10 +501,10 @@ function createVehicleFromExtractedData(
     // Try Dealer.com JSON as fallback
     if (extractedData?.dealerComJson) {
       const dealerCom = extractedData.dealerComJson;
-      
+
       if (dealerCom.vehicle || dealerCom.inventory) {
         const vehicleData = dealerCom.vehicle || dealerCom.inventory;
-        
+
         return {
           id: vehicleData.id || vehicleData.stockNumber || '',
           year: vehicleData.year || null,

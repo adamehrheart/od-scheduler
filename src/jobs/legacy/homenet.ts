@@ -4,7 +4,7 @@ import { env } from '../env.js'
 
 /**
  * HomeNet Job Runner
- * 
+ *
  * Executes HomeNet SOAP API calls to fetch vehicle inventory
  * and posts the results to the Data API for ingestion.
  */

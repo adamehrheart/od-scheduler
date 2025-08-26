@@ -174,9 +174,9 @@ export async function processDealerComFeedForDealer(
                 .upsert({
                     ...vehicleData,
                     short_url_status: existingVehicle?.short_url_status || 'pending'
-                }, { 
+                }, {
                     onConflict: 'dealer_id,vin',
-                    ignoreDuplicates: false 
+                    ignoreDuplicates: false
                 });
 
             if (upsertError) {

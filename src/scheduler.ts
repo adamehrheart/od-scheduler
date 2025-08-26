@@ -46,7 +46,7 @@ function calculateNextRun(lastRun: Date, schedule: string): Date {
 
 /**
  * Main Scheduler Service
- * 
+ *
  * Orchestrates the execution of scheduled jobs for all dealers and platforms.
  * Manages job scheduling, execution, monitoring, and result tracking.
  */

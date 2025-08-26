@@ -1,6 +1,6 @@
 /**
  * Dealer.com Pagination Utility
- * 
+ *
  * Handles pagination for Dealer.com API calls to retrieve all vehicles
  * when inventory exceeds the single-page limit (~100 vehicles).
  */

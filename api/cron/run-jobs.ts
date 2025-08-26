@@ -4,12 +4,12 @@ import { logInfo, logError } from '@adamehrheart/utils'
 
 /**
  * Vercel Cron Job Endpoint
- * 
+ *
  * This endpoint is called by Vercel's cron job system daily
  * to execute scheduled Dealer.com data pull jobs for all active dealers.
- * 
+ *
  * Cron Schedule: 0 9 * * * (daily at 9 AM)
- * 
+ *
  * Features:
  * - Dealer.com direct API integration
  * - Multi-config inventory segmentation
@@ -26,7 +26,7 @@ export default async function handler(
     // Initialize scheduler service
     const scheduler = new SchedulerService()
 
-    // Run all scheduled jobs  
+    // Run all scheduled jobs
     const result = await scheduler.runJobs()
 
     // Return success response
