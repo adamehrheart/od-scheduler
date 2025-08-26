@@ -98,7 +98,7 @@ export default async function handler(
 
   } catch (error) {
     logError('Job status request failed', error)
-    
+
     res.status(500).json({
       success: false,
       message: 'Failed to retrieve job status',

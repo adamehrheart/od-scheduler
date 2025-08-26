@@ -33,7 +33,7 @@ export default async function handler(
 
     // Initialize scheduler service
     const scheduler = new SchedulerService()
-    
+
     // Run jobs with request parameters
     const result = await scheduler.runJobs(req.body)
 
@@ -55,7 +55,7 @@ export default async function handler(
 
   } catch (error) {
     logError('Manual job execution failed', error)
-    
+
     res.status(500).json({
       success: false,
       message: 'Job execution failed',

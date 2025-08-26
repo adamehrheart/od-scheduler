@@ -69,7 +69,7 @@ async function fetchDealerComPage(
       pageId: 'v9_INVENTORY_SEARCH_RESULTS_AUTO_ALL_V1_1'
     }
   ];
-  const buildBodyVariantA = (variant: { pageAlias: string; pageId: string }) => ({
+  const buildRequestBodyVariantA = (variant: { pageAlias: string; pageId: string }) => ({
     siteId: config.siteId,
     locale: 'en_US',
     device: 'DESKTOP',
@@ -85,7 +85,7 @@ async function fetchDealerComPage(
     }
   });
   // Fallback body using preferences.pageStart/pageSize (works on some rooftops)
-  const buildBodyPreferences = (variant: { pageAlias: string; pageId: string }) => ({
+  const buildRequestBodyWithPreferences = (variant: { pageAlias: string; pageId: string }) => ({
     siteId: config.siteId,
     locale: 'en_US',
     device: 'DESKTOP',
@@ -119,12 +119,12 @@ async function fetchDealerComPage(
     });
     let response: Response | undefined;
     for (const w of widgetVariants) {
-      const a = buildBodyVariantA(w);
-      response = await tryFetch(a);
+      const requestBodyVariantA = buildRequestBodyVariantA(w);
+      response = await tryFetch(requestBodyVariantA);
       if (response && response.ok) break;
       logFunction?.('warn', 'Variant A failed for widget, trying preferences', { status: response ? response.status : undefined, widget: w.pageAlias });
-      const p = buildBodyPreferences(w);
-      response = await tryFetch(p);
+      const requestBodyWithPreferences = buildRequestBodyWithPreferences(w);
+      response = await tryFetch(requestBodyWithPreferences);
       if (response && response.ok) break;
     }
     if (!response || !response.ok) {
@@ -274,7 +274,7 @@ async function fetchDealerComPageWithConfig(
 
   // Build request body with specific listing config
   const pageNumber = Math.floor(pageStart / pageSize) + 1;
-  const buildBody = () => ({
+  const buildMultiConfigRequestBody = () => ({
     siteId: config.siteId,
     locale: 'en_US',
     device: 'DESKTOP',
@@ -307,7 +307,7 @@ async function fetchDealerComPageWithConfig(
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildBody())
+      body: JSON.stringify(buildMultiConfigRequestBody())
     });
 
     if (!response || !response.ok) {

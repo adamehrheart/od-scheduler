@@ -9,12 +9,12 @@ import type { ScheduledJob, JobExecution, JobResult, RunJobsRequest, RunJobsResp
 function shouldRunJob(job: ScheduledJob, force: boolean = false): boolean {
   if (force) return true
   if (job.status !== 'active') return false
-  
+
   const now = new Date()
   const lastRun = job.last_run ? new Date(job.last_run) : null
-  
+
   if (!lastRun) return true
-  
+
   const nextRun = calculateNextRun(lastRun, job.schedule)
   return now >= nextRun
 }
@@ -24,7 +24,7 @@ function shouldRunJob(job: ScheduledJob, force: boolean = false): boolean {
  */
 function calculateNextRun(lastRun: Date, schedule: string): Date {
   const nextRun = new Date(lastRun)
-  
+
   switch (schedule) {
     case 'hourly':
       nextRun.setHours(nextRun.getHours() + 1)
@@ -40,7 +40,7 @@ function calculateNextRun(lastRun: Date, schedule: string): Date {
       nextRun.setHours(nextRun.getHours() + 1)
       break
   }
-  
+
   return nextRun
 }
 
