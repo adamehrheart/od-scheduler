@@ -1,7 +1,48 @@
-import { getSupabaseClient, shouldRunJob, calculateNextRun, logInfo, logSuccess, logError, createPerformanceTimer } from './utils.js'
+import { createSupabaseClientFromEnv, logInfo, logSuccess, logError, createPerformanceTimer } from '@adamehrheart/utils'
 import { DealerComJobRunner } from './jobs/dealer-com.js'
 // Legacy imports removed - files moved to legacy folder
 import type { ScheduledJob, JobExecution, JobResult, RunJobsRequest, RunJobsResponse } from './types.js'
+
+/**
+ * Check if a job should run based on its schedule
+ */
+function shouldRunJob(job: ScheduledJob, force: boolean = false): boolean {
+  if (force) return true
+  if (job.status !== 'active') return false
+  
+  const now = new Date()
+  const lastRun = job.last_run ? new Date(job.last_run) : null
+  
+  if (!lastRun) return true
+  
+  const nextRun = calculateNextRun(lastRun, job.schedule)
+  return now >= nextRun
+}
+
+/**
+ * Calculate next run time based on schedule
+ */
+function calculateNextRun(lastRun: Date, schedule: string): Date {
+  const nextRun = new Date(lastRun)
+  
+  switch (schedule) {
+    case 'hourly':
+      nextRun.setHours(nextRun.getHours() + 1)
+      break
+    case 'daily':
+      nextRun.setDate(nextRun.getDate() + 1)
+      break
+    case 'weekly':
+      nextRun.setDate(nextRun.getDate() + 7)
+      break
+    default:
+      // Default to hourly if unknown schedule
+      nextRun.setHours(nextRun.getHours() + 1)
+      break
+  }
+  
+  return nextRun
+}
 
 /**
  * Main Scheduler Service
@@ -10,7 +51,7 @@ import type { ScheduledJob, JobExecution, JobResult, RunJobsRequest, RunJobsResp
  * Manages job scheduling, execution, monitoring, and result tracking.
  */
 export class SchedulerService {
-  private supabase = getSupabaseClient()
+  private supabase = createSupabaseClientFromEnv()
 
   /**
    * Run all scheduled jobs

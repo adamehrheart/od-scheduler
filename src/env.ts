@@ -31,6 +31,19 @@ export const EnvSchema = z.object({
   // Rebrandly
   OD_REBRANDLY_API_KEY: z.string().min(8).optional(),
 
+  // Dealer source configuration
+  PRIMARY_SOURCE: z.enum(['multi_source', 'dealer_com_only']).default('dealer_com_only'),
+  DEALER_COM_ONLY: z.string().transform(val => val === 'true').default('true'),
+  ENABLE_HOMENET: z.string().transform(val => val !== 'false').default('false'),
+  ENABLE_SITEMAP: z.string().transform(val => val !== 'false').default('false'),
+  ENABLE_SCRAPING: z.string().transform(val => val !== 'false').default('false'),
+  ENABLE_URL_SHORTENING: z.string().transform(val => val !== 'false').default('false'),
+  DEALER_COM_PAGE_SIZE: z.string().default('100').transform(Number),
+  DEALER_COM_MAX_PAGES: z.string().default('10').transform(Number),
+
+  // Cron security
+  CRON_SECRET: z.string().min(8).optional(),
+
   // Vercel
   VERCEL_DEPLOYMENT_PROTECTION_BYPASS: z.string().optional(),
 })

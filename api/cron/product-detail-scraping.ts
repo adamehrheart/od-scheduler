@@ -1,10 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { env } from '../../src/env.js'
 import { SchedulerService } from '../../src/scheduler.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Verify this is a cron job request
   const authHeader = req.headers.authorization
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (authHeader !== `Bearer ${env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 

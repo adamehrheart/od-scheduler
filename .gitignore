@@ -48,3 +48,4 @@ coverage/
 .env.backup
 .env*.local
 .temp-scripts/
+.npmrc

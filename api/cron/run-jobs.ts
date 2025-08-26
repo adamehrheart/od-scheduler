@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { SchedulerService } from '../../src/scheduler.js'
-import { logInfo, logError } from '../../src/utils.js'
+import { logInfo, logError } from '@adamehrheart/utils'
 
 /**
  * Vercel Cron Job Endpoint

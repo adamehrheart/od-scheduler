@@ -1,9 +1,10 @@
-import { SchedulerService } from '../../src/scheduler.js';
+import { SchedulerService } from '../../src/scheduler.js'
+import { env } from '../../src/env.js';
 
 export default async function handler(req: any, res: any) {
   // Verify this is a cron request
   const authHeader = req.headers.authorization;
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (authHeader !== `Bearer ${env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 

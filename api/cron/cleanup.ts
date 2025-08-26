@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { getSupabaseClient, logInfo, logError, createPerformanceTimer } from '../../src/utils.js'
+import { createSupabaseClientFromEnv, logInfo, logError, createPerformanceTimer } from '@adamehrheart/utils'
 
 /**
  * Vercel Cron Job Endpoint - Cleanup
@@ -19,7 +19,7 @@ export default async function handler(
   try {
     logInfo('Cleanup cron job triggered')
 
-    const supabase = getSupabaseClient()
+    const supabase = createSupabaseClientFromEnv()
     let totalDeleted = 0
 
     // 1. Clean up old job executions (keep last 30 days)

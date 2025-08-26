@@ -1,5 +1,5 @@
 import type { ScheduledJob, JobExecution } from '../types.js'
-import { logInfo, logSuccess, logError, createPerformanceTimer } from '../utils.js'
+import { logInfo, logSuccess, logError, createPerformanceTimer } from '@adamehrheart/utils'
 import { env } from '../env.js'
 
 /**

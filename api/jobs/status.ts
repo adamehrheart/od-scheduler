@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { getSupabaseClient, logInfo, logError } from '../../src/utils.js'
+import { createSupabaseClientFromEnv, logInfo, logError } from '@adamehrheart/utils'
 
 /**
  * Job Status Monitoring Endpoint
@@ -28,7 +28,7 @@ export default async function handler(
 
     logInfo('Job status requested', { dealer_id, platform, limit: limitNum })
 
-    const supabase = getSupabaseClient()
+    const supabase = createSupabaseClientFromEnv()
 
     // Build query for recent job executions
     let query = supabase
@@ -64,10 +64,10 @@ export default async function handler(
     // Calculate statistics
     const stats = {
       total_executions_24h: summary?.length || 0,
-      successful_executions_24h: summary?.filter(e => e.status === 'success').length || 0,
-      failed_executions_24h: summary?.filter(e => e.status === 'failed').length || 0,
-      running_executions_24h: summary?.filter(e => e.status === 'running').length || 0,
-      platform_breakdown: summary?.reduce((acc, e) => {
+      successful_executions_24h: summary?.filter((e: any) => e.status === 'success').length || 0,
+      failed_executions_24h: summary?.filter((e: any) => e.status === 'failed').length || 0,
+      running_executions_24h: summary?.filter((e: any) => e.status === 'running').length || 0,
+      platform_breakdown: summary?.reduce((acc: any, e: any) => {
         acc[e.platform] = (acc[e.platform] || 0) + 1
         return acc
       }, {} as Record<string, number>) || {}

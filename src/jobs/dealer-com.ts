@@ -2,6 +2,7 @@ import { ScheduledJob } from '../types.js';
 import { env } from '../env.js';
 import { useDealerComOnly, getCurrentConfig } from '../config/dealer-sources.js';
 import { fetchAllDealerComInventory, DealerComPaginationConfig, getPaginationStats } from '../lib/dealer-com-pagination.js';
+import { createSupabaseClientFromEnv, logInfo, logError, logSuccess } from '@adamehrheart/utils';
 
 export class DealerComJobRunner {
   private job: ScheduledJob;
@@ -14,8 +15,8 @@ export class DealerComJobRunner {
     const startTime = Date.now();
 
     try {
-      console.log('🚀 DealerComJobRunner: Starting with feature flags!');
-      console.log('📋 Current configuration:', getCurrentConfig());
+      logInfo('DealerComJobRunner: Starting with feature flags');
+      logInfo('Current configuration', getCurrentConfig());
 
       // Get dealer information from the database
       const dealer = await this.getDealerInfo();
@@ -25,16 +26,16 @@ export class DealerComJobRunner {
 
       // Check if we should use Dealer.com-only approach
       if (useDealerComOnly()) {
-        console.log('🎯 Using Dealer.com-only approach');
+        logInfo('Using Dealer.com-only approach');
         return await this.executeDealerComOnly(dealer);
       } else {
-        console.log('🔄 Using multi-source approach (existing logic)');
+        logInfo('Using multi-source approach (existing logic)');
         return await this.executeMultiSource(dealer);
       }
 
     } catch (error) {
       const duration = Date.now() - startTime;
-      console.error('❌ Dealer.com job failed:', {
+      logError('Dealer.com job failed', {
         dealer_id: this.job.dealer_id,
         error: error instanceof Error ? error.message : String(error),
         duration_ms: duration
@@ -423,11 +424,11 @@ export class DealerComJobRunner {
         console.log(`📡 Fetching ${inventoryType.name} inventory...`);
 
         const response = await fetch('https://www.rsmhondaonline.com/api/widget/ws-inv-data/getInventory', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
             siteId: siteId,
             locale: 'en_US',
             device: 'DESKTOP',
@@ -440,7 +441,7 @@ export class DealerComJobRunner {
           })
         });
 
-        if (!response.ok) {
+    if (!response.ok) {
           console.log(`⚠️ Failed to fetch ${inventoryType.name} inventory: ${response.status} ${response.statusText}`);
           continue;
         }
@@ -795,8 +796,7 @@ export class DealerComJobRunner {
   }
 
   private async getDealerInfo(): Promise<any> {
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
+    const supabase = createSupabaseClientFromEnv();
 
     const { data, error } = await supabase
       .from('dealers')
@@ -812,8 +812,7 @@ export class DealerComJobRunner {
   }
 
   private async getExistingVehicles(): Promise<any[]> {
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
+    const supabase = createSupabaseClientFromEnv();
 
     const { data, error } = await supabase
       .from('vehicles')
@@ -834,8 +833,7 @@ export class DealerComJobRunner {
 
     console.log(`🔄 Updating ${enrichedVehicles.length} vehicles with REVOLUTIONARY Dealer.com data...`);
 
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
+    const supabase = createSupabaseClientFromEnv();
 
     let updatedCount = 0;
 
@@ -906,8 +904,7 @@ export class DealerComJobRunner {
 
     console.log(`💾 Storing ${vehicles.length} vehicles from Dealer.com...`);
 
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(env.OD_SUPABASE_URL, env.OD_SUPABASE_SERVICE_ROLE);
+    const supabase = createSupabaseClientFromEnv();
 
     let storedCount = 0;
     const storedVehicles = [];

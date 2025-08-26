@@ -5,7 +5,7 @@
  * for all job types in the Open Dealer scheduler.
  */
 
-import { getSupabaseClient } from '../utils.js';
+import { createSupabaseClientFromEnv } from '@adamehrheart/utils';
 
 export interface ErrorHandlingConfig {
   maxRetries: number;
@@ -23,7 +23,7 @@ export interface JobError {
 }
 
 export class EnhancedErrorHandler {
-  private supabase = getSupabaseClient();
+  private supabase = createSupabaseClientFromEnv();
   private circuitBreakerState: Map<string, { failures: number; lastFailure: number; open: boolean }> = new Map();
   
   private defaultConfig: ErrorHandlingConfig = {
@@ -223,7 +223,7 @@ export async function executeJobWithErrorHandling<T>(
   errorHandler: EnhancedErrorHandler,
   logFunction: (level: string, message: string, data?: any) => void = console.log
 ): Promise<{ success: boolean; result?: T; error?: JobError }> {
-  const supabase = getSupabaseClient();
+  const supabase = createSupabaseClientFromEnv();
 
   try {
     // Mark job as processing
