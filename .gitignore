@@ -47,3 +47,4 @@ coverage/
 *.tsbuildinfo
 .env.backup
 .env*.local
+.temp-scripts/
