@@ -61,9 +61,12 @@ export class DealerComJobRunner {
       };
 
       // Fetch all vehicles using pagination
-      const allVehicles = await fetchAllDealerComInventory(config, (level: string, message: string, data?: any) => {
+      const paginationResult = await fetchAllDealerComInventory(config, (level: string, message: string, data?: any) => {
         console.log(`[${level.toUpperCase()}] ${message}`, data);
       });
+
+      const allVehicles = paginationResult.vehicles;
+      const actualTotalCount = paginationResult.totalCount;
 
       // Transform and store vehicles
       const transformedVehicles = allVehicles.map((vehicle: any) => this.transformDealerComVehicle(vehicle));
@@ -72,12 +75,13 @@ export class DealerComJobRunner {
       const storedVehicles = await this.storeVehicles(transformedVehicles);
 
       const duration = Date.now() - startTime;
-      const stats = getPaginationStats(allVehicles.length, config.pageSize || 100);
+      const stats = getPaginationStats(allVehicles.length, config.pageSize || 100, actualTotalCount);
 
       console.log('🎉 Dealer.com-only approach completed successfully!', {
         dealer_id: this.job.dealer_id,
         dealer_name: dealer.name,
-        total_vehicles: allVehicles.length,
+        actual_total_count: actualTotalCount,
+        fetched_vehicles: allVehicles.length,
         stored_vehicles: storedVehicles.length,
         pagination_stats: stats,
         duration_ms: duration
@@ -86,7 +90,8 @@ export class DealerComJobRunner {
       return {
         success: true,
         approach: 'dealer_com_only',
-        total_vehicles: allVehicles.length,
+        actual_total_count: actualTotalCount,
+        fetched_vehicles: allVehicles.length,
         stored_vehicles: storedVehicles.length,
         pagination_stats: stats,
         duration_ms: duration
@@ -487,63 +492,261 @@ export class DealerComJobRunner {
   }
 
   /**
-   * Transform Dealer.com vehicle data to our format
-   * This extracts all the rich data from the Dealer.com API response
-   */
+ * Transform Dealer.com vehicle data to our format
+ * This extracts ALL the rich data from the Dealer.com API response
+ */
   private transformDealerComVehicle(vehicle: any): any {
+    // Helper function to extract tracking attribute
+    const getTrackingAttr = (name: string) => {
+      return vehicle.trackingAttributes?.find((attr: any) => attr.name === name)?.value || null;
+    };
+
+    // Helper function to extract equipment by category
+    const getEquipmentByCategory = (category: string) => {
+      const categoryData = vehicle.equipment?.find((eq: any) => eq.category === category);
+      return categoryData?.specifications?.map((spec: any) => spec.description) || null;
+    };
+
+    // Build description from title and key attributes
+    const description = [
+      vehicle.title?.join(' '),
+      vehicle.trim,
+      vehicle.trackingAttributes?.find((attr: any) => attr.name === 'engine')?.value,
+      vehicle.trackingAttributes?.find((attr: any) => attr.name === 'transmission')?.value
+    ].filter(Boolean).join(' - ');
+
     return {
+      // Core vehicle identification
       vin: vehicle.vin,
-      dealer_page_url: `https://www.rsmhondaonline.com${vehicle.link}`,
-
-      // 🎯 CRITICAL FIELDS (previously NULL from HomeNet)
-      transmission: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'transmission')?.value || null,
-      drivetrain: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'driveLine')?.value || null,
-      body_style: vehicle.bodyStyle || null,
-
-      // Vehicle details
       stock_number: vehicle.stockNumber || null,
       year: vehicle.year || null,
       make: vehicle.make || null,
       model: vehicle.model || null,
       trim: vehicle.trim || null,
+
+      // Rich description
+      description: description,
+
+      // Pricing & Financial - Enhanced mapping from raw pricing data
+      price: this.extractPrice(vehicle.pricing),
+      msrp: this.extractMSRP(vehicle.pricing),
+
+      // Dealer information
+      dealer_page_url: `https://www.rsmhondaonline.com${vehicle.link}`,
+
+      // Vehicle condition & status
+      condition: vehicle.condition || null,
+      availability_status: vehicle.status || null,
+      certified: vehicle.certified || false,
+
+      // Performance & efficiency
+      mileage: getTrackingAttr('odometer') ? parseInt(getTrackingAttr('odometer').replace(/[,\s]/g, '')) : null,
+      city_mpg: getTrackingAttr('cityFuelEconomy') ? Math.round(parseFloat(getTrackingAttr('cityFuelEconomy'))) : null,
+      highway_mpg: getTrackingAttr('highwayFuelEconomy') ? Math.round(parseFloat(getTrackingAttr('highwayFuelEconomy'))) : null,
+      combined_mpg: this.calculateCombinedMPG(getTrackingAttr('cityFuelEconomy'), getTrackingAttr('highwayFuelEconomy')),
+
+      // Engine & drivetrain
+      engine_size: getTrackingAttr('engineSize'),
+      engine_cylinder_count: this.extractCylinderCount(getTrackingAttr('engine')),
+      engine_specification: getTrackingAttr('engine'),
+      transmission: getTrackingAttr('transmission'),
+      drivetrain: getTrackingAttr('driveLine'),
+
+      // Body & styling
+      body_style: vehicle.bodyStyle || null,
       fuel_type: vehicle.fuelType || null,
+      color_ext: getTrackingAttr('exteriorColor'),
+      color_int: getTrackingAttr('interiorColor'),
 
-      // Performance and efficiency
-      mileage: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'odometer')?.value || null,
-      city_mpg: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'cityFuelEconomy')?.value || null,
-      highway_mpg: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'highwayFuelEconomy')?.value || null,
-      combined_mpg: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'combinedFuelEfficiency')?.value || null,
+      // Features & specifications (arrays as per schema)
+      features: vehicle.equipment?.map((eq: any) => eq.category) || null,
+      safety_features: getEquipmentByCategory('Safety and Security'),
+      technology_features: getEquipmentByCategory('Entertainment Features'),
+      comfort_features: getEquipmentByCategory('Convenience Features'),
 
-      // Colors
-      exterior_color: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'exteriorColor')?.value || null,
-      interior_color: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'interiorColor')?.value || null,
+      // Passenger & cargo
+      passenger_capacity: getTrackingAttr('maxSeatingCapacity') ? parseInt(getTrackingAttr('maxSeatingCapacity')) : 5,
 
-      // Engine
-      engine: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'engine')?.value || null,
-      engine_size: vehicle.trackingAttributes?.find((attr: any) => attr.name === 'engineSize')?.value || null,
+      // Incentives & packages (arrays as per schema)
+      incentives: this.extractIncentives(vehicle.pricing) || vehicle.packages || null,
+      factory_options: vehicle.packages || null,
+      option_packages: vehicle.packages || null,
 
-      // Pricing
-      msrp: vehicle.trackingPricing?.msrp || null,
-      internet_price: vehicle.trackingPricing?.internetPrice || null,
+      // Financial information (not available in Dealer.com API)
+      monthly_payment: null, // Not provided by Dealer.com
+      down_payment: null, // Not provided by Dealer.com
+      financing_available: null, // Not provided by Dealer.com
 
-      // Media
-      images: vehicle.images?.map((img: any) => img.uri) || [],
+      // Media & links (arrays as per schema)
+      images: vehicle.images?.map((img: any) => ({ url: img.uri, alt: img.alt, title: img.title, id: img.id })) || null,
+      video_links: vehicle.videoLinks || null,
 
-      // Equipment and specifications
-      equipment: vehicle.equipment || [],
+      // Carfax & reports
+      carfax_report_url: vehicle.callout?.find((c: any) => c.badgeClasses?.includes('carfax'))?.href || null,
 
-      // Incentives
-      incentives: vehicle.incentiveIds || [],
+      // Inventory tracking
+      days_in_inventory: vehicle.inventoryDate ? this.calculateDaysInInventory(vehicle.inventoryDate) : null,
+      expected_arrival_date: vehicle.expectedArrivalDate || null,
+      offsite_location: vehicle.offSite || false,
 
-      // Additional metadata
-      uuid: vehicle.uuid || null,
-      chrome_id: vehicle.chromeId || null,
-      model_code: vehicle.modelCode || null,
-      inventory_date: vehicle.inventoryDate || null,
-      off_site: vehicle.offSite || false,
-      status: vehicle.status || null,
-      type: vehicle.type || null
+      // Additional metadata (arrays as per schema)
+      vehicle_category: vehicle.classification || null,
+      dealer_highlights: this.extractDealerHighlights(vehicle),
+      key_features: vehicle.highlightedAttributes?.map((attr: any) => attr.labeledValue) || null,
+
+      // Raw data for debugging
+      raw: vehicle,
+
+      // Source tracking
+      source_priority: 1, // 1 = dealer_com (highest priority)
+      url_source: 'api-indirect' // We're using Dealer.com API indirectly
     };
+  }
+
+  /**
+   * Calculate days in inventory from inventory date
+   */
+  private calculateDaysInInventory(inventoryDate: string): number | null {
+    try {
+      const [month, day, year] = inventoryDate.split('/');
+      const inventoryDateTime = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      const now = new Date();
+      const diffTime = Math.abs(now.getTime() - inventoryDateTime.getTime());
+      return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+ * Extract cylinder count from engine description
+ */
+  private extractCylinderCount(engineDescription: string | null): number | null {
+    if (!engineDescription) return null;
+
+    // If it's just a number (like "4"), return it directly
+    if (/^\d+$/.test(engineDescription)) {
+      return parseInt(engineDescription);
+    }
+
+    // Match patterns like "2L i-4", "V6", "4-Cylinder", "I4", etc.
+    const patterns = [
+      /(\d+)-Cylinder/i,
+      /i-(\d+)/i,
+      /I(\d+)/i,  // Match "I4", "I6", etc.
+      /V(\d+)/i,
+      /(\d+)L.*i-(\d+)/i
+    ];
+
+    for (const pattern of patterns) {
+      const match = engineDescription.match(pattern);
+      if (match) {
+        return parseInt(match[1] || match[2]);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract sale price from Dealer.com pricing data
+   */
+  private extractPrice(pricing: any): number | null {
+    if (!pricing?.dprice) return null;
+
+    // Look for internet price or sale price first
+    const internetPrice = pricing.dprice.find((p: any) => p.typeClass === 'internetPrice');
+    if (internetPrice?.value) {
+      return parseInt(internetPrice.value.replace(/[$,]/g, ''));
+    }
+
+    // For new vehicles, use retail price if no internet price
+    if (pricing.retailPrice) {
+      return parseInt(pricing.retailPrice.replace(/[$,]/g, ''));
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract MSRP from Dealer.com pricing data
+   */
+  private extractMSRP(pricing: any): number | null {
+    if (!pricing?.dprice) return null;
+
+    // Look for MSRP in dprice array
+    const msrpPrice = pricing.dprice.find((p: any) => p.typeClass === 'msrp');
+    if (msrpPrice?.value) {
+      return parseInt(msrpPrice.value.replace(/[$,]/g, ''));
+    }
+
+    return null;
+  }
+
+  /**
+ * Extract incentives from Dealer.com pricing data
+ */
+  private extractIncentives(pricing: any): string[] | null {
+    if (!pricing?.dprice) return null;
+
+    const incentives: string[] = [];
+
+    // Extract conditional offers and other incentives
+    pricing.dprice.forEach((p: any) => {
+      if (p.type === 'SICCI' && p.label && p.value) {
+        incentives.push(`${p.label}: ${p.value}`);
+      }
+    });
+
+    return incentives.length > 0 ? incentives : null;
+  }
+
+  /**
+   * Calculate combined MPG from city and highway MPG
+   */
+  private calculateCombinedMPG(cityMPG: string | null, highwayMPG: string | null): number | null {
+    if (!cityMPG || !highwayMPG) return null;
+
+    const city = parseFloat(cityMPG);
+    const highway = parseFloat(highwayMPG);
+
+    if (isNaN(city) || isNaN(highway)) return null;
+
+    // EPA formula: 55% city, 45% highway
+    return Math.round((city * 0.55) + (highway * 0.45));
+  }
+
+  /**
+   * Extract dealer highlights from vehicle data
+   */
+  private extractDealerHighlights(vehicle: any): string[] | null {
+    const highlights: string[] = [];
+
+    // Featured promotion
+    if (vehicle.featuredPromotion) {
+      highlights.push('Featured Vehicle');
+    }
+
+    // Spotlighted vehicle
+    if (vehicle.spotlightedVehicle) {
+      highlights.push('Spotlighted Vehicle');
+    }
+
+    // New car boost
+    if (vehicle.newCarBoost || vehicle.isNewCarBoost) {
+      highlights.push('New Car Boost');
+    }
+
+    // Callouts (like Carfax badges)
+    if (vehicle.callout?.length > 0) {
+      vehicle.callout.forEach((callout: any) => {
+        if (callout.badgeClasses?.includes('carfax')) {
+          highlights.push('Carfax Report Available');
+        }
+      });
+    }
+
+    return highlights.length > 0 ? highlights : null;
   }
 
   /**
@@ -711,8 +914,9 @@ export class DealerComJobRunner {
 
     for (const vehicle of vehicles) {
       try {
-        // Prepare vehicle data for storage (matching actual schema)
+        // Prepare vehicle data for storage with fields that actually exist in the database
         const vehicleData = {
+          // Core identification (these exist)
           vin: vehicle.vin,
           dealer_id: this.job.dealer_id,
           make: vehicle.make,
@@ -720,15 +924,52 @@ export class DealerComJobRunner {
           year: vehicle.year,
           trim: vehicle.trim,
           stock_number: vehicle.stock_number,
-          transmission: vehicle.transmission,
-          drivetrain: vehicle.drivetrain,
-          body_style: vehicle.body_style,
-          fuel_type: vehicle.fuel_type,
-          mileage: vehicle.mileage,
+
+          // Basic fields that exist
           price: vehicle.price,
-          color_ext: vehicle.exterior_color,
-          color_int: vehicle.interior_color,
+          mileage: vehicle.mileage,
+          color_ext: vehicle.color_ext,
+          color_int: vehicle.color_int,
+          body_style: vehicle.body_style,
+          drivetrain: vehicle.drivetrain,
+          transmission: vehicle.transmission,
+          fuel_type: vehicle.fuel_type,
           images: vehicle.images,
+
+          // Fields that exist in the database
+          features: vehicle.features,
+          source_priority: vehicle.source_priority,
+          raw: vehicle.raw,
+          url_source: vehicle.url_source,
+          msrp: vehicle.msrp,
+          description: vehicle.description,
+          dealerslug: vehicle.dealerslug,
+          condition: vehicle.condition,
+          availability_status: vehicle.availability_status,
+          certified: vehicle.certified,
+          city_mpg: vehicle.city_mpg,
+          highway_mpg: vehicle.highway_mpg,
+          combined_mpg: vehicle.combined_mpg,
+          engine_size: vehicle.engine_size,
+          engine_cylinder_count: vehicle.engine_cylinder_count,
+          engine_specification: vehicle.engine_specification,
+          passenger_capacity: vehicle.passenger_capacity,
+          incentives: vehicle.incentives,
+          safety_features: vehicle.safety_features,
+          technology_features: vehicle.technology_features,
+          comfort_features: vehicle.comfort_features,
+          vehicle_category: vehicle.vehicle_category,
+          factory_options: vehicle.factory_options,
+          option_packages: vehicle.option_packages,
+          video_links: vehicle.video_links,
+          dealer_highlights: vehicle.dealer_highlights,
+          key_features: vehicle.key_features,
+          carfax_report_url: vehicle.carfax_report_url,
+          days_in_inventory: vehicle.days_in_inventory,
+          expected_arrival_date: vehicle.expected_arrival_date,
+          dealer_page_url: vehicle.dealer_page_url,
+
+          // Update timestamp
           updated_at: new Date().toISOString()
         };
 

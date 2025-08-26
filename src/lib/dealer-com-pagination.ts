@@ -123,7 +123,7 @@ async function fetchDealerComPage(
 export async function fetchAllDealerComInventory(
   config: DealerComPaginationConfig,
   logFunction?: (level: string, message: string, data?: any) => void
-): Promise<DealerComVehicle[]> {
+): Promise<{ vehicles: DealerComVehicle[], totalCount: number }> {
   const pageSize = config.pageSize || DEALER_SOURCES.pagination.dealer_com_page_size;
   const maxPages = config.maxPages || DEALER_SOURCES.pagination.max_pages;
 
@@ -164,9 +164,9 @@ export async function fetchAllDealerComInventory(
       }
 
       // Check if we've reached the total count or got less than a full page
-      const hasMoreData = response.inventory && 
-                         response.inventory.length === pageSize && 
-                         allVehicles.length < (totalCount || Infinity);
+      const hasMoreData = response.inventory &&
+        response.inventory.length === pageSize &&
+        allVehicles.length < (totalCount || 0);
 
       if (hasMoreData) {
         pageStart += pageSize;
@@ -186,14 +186,23 @@ export async function fetchAllDealerComInventory(
 
     } while (true);
 
+    // Trim vehicles to actual total count if we over-fetched
+    const finalVehicles = totalCount && allVehicles.length > totalCount 
+      ? allVehicles.slice(0, totalCount) 
+      : allVehicles;
+
     logFunction?.('info', 'Dealer.com pagination complete', {
       totalPages: currentPage,
-      totalVehicles: allVehicles.length,
+      totalVehicles: finalVehicles.length,
       expectedTotal: totalCount,
+      overFetched: allVehicles.length - (totalCount || 0),
       siteId: config.siteId
     });
 
-    return allVehicles;
+    return {
+      vehicles: finalVehicles,
+      totalCount: totalCount || 0
+    };
 
   } catch (error) {
     logFunction?.('error', 'Dealer.com pagination failed', {
