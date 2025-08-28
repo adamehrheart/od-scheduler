@@ -43,8 +43,11 @@ A serverless scheduling service built on Vercel that manages data pull jobs for 
 
 1. **Start development environment:**
    ```bash
-   cd od-scheduler
-   ./dev-setup.sh
+   # Start all services (recommended)
+   ./od-standards/scripts/docker-orchestrate.sh start full
+
+   # Or start just the scheduler
+   docker-compose -f od-standards/docker-compose.yml --profile api up -d
    ```
 
 2. **View logs:**
