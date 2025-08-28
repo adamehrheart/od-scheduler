@@ -3,6 +3,7 @@ import { DealerComJobRunner } from './jobs/dealer-com.js'
 // Legacy imports removed - files moved to legacy folder
 import type { ScheduledJob, JobExecution, JobResult, RunJobsRequest, RunJobsResponse } from './types.js'
 import { TimezoneAwareScheduler, type DealerTimezoneConfig, type SmartScheduleResult } from './timezone-scheduler.js'
+import { SchedulerEventClient } from './events/eventClient.js'
 
 /**
  * Check if a job should run based on its schedule and timezone
@@ -63,15 +64,17 @@ function calculateNextRun(lastRun: Date, schedule: string): Date {
  */
 export class SchedulerService {
   private supabase = createSupabaseClientFromEnv()
+  private eventClient = new SchedulerEventClient()
 
   /**
    * Run all scheduled jobs
    */
   async runJobs(request: RunJobsRequest = {}): Promise<RunJobsResponse> {
     const timer = createPerformanceTimer()
+    const batchId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
     try {
-      logInfo('Starting scheduled job execution', request)
+      logInfo('Starting scheduled job execution', { ...request, batchId })
 
       // 1. Get all active jobs from PayloadCMS
       const jobs = await this.getActiveJobs(request)
@@ -81,6 +84,11 @@ export class SchedulerService {
       const smartSchedules = await this.generateTimezoneAwareSchedule(jobs)
       const jobsToRun = this.filterJobsByOptimalTiming(jobs, smartSchedules, request.force)
       logInfo(`${jobsToRun.length} jobs need to be executed (timezone-aware filtering)`)
+
+      // 3. Publish batch started event
+      if (jobsToRun.length > 0) {
+        await this.publishBatchStartedEvent(batchId, jobsToRun, smartSchedules, request.force ? 'manual' : 'cron')
+      }
 
       if (jobsToRun.length === 0) {
         return {
@@ -93,15 +101,16 @@ export class SchedulerService {
         }
       }
 
-      // 3. Execute jobs with priority-based scheduling and concurrency control
+      // 4. Execute jobs with priority-based scheduling and concurrency control
       const results = await this.executeJobsWithPriorityScheduling(jobsToRun, smartSchedules)
 
-      // 4. Update job statuses in database
+      // 5. Update job statuses in database
       await this.updateJobStatuses(results)
 
-      // 5. Calculate summary
+      // 6. Calculate summary
       const jobsSucceeded = results.filter(r => r.success).length
       const jobsFailed = results.filter(r => !r.success).length
+      const totalVehiclesProcessed = results.reduce((sum, r) => sum + (r.execution.vehicles_processed || 0), 0)
 
       const response: RunJobsResponse = {
         success: true,
@@ -112,10 +121,26 @@ export class SchedulerService {
         execution_time_ms: timer.getDurationMs()
       }
 
+      // 7. Publish batch completed event
+      if (jobsToRun.length > 0) {
+        await this.publishBatchCompletedEvent(batchId, {
+          startTime: new Date(Date.now() - response.execution_time_ms).toISOString(),
+          endTime: new Date().toISOString(),
+          durationMs: response.execution_time_ms,
+          totalJobs: jobsToRun.length,
+          successfulJobs: jobsSucceeded,
+          failedJobs: jobsFailed,
+          totalVehiclesProcessed,
+          results
+        })
+      }
+
       logSuccess('Scheduled job execution completed', {
+        batchId,
         jobs_executed: jobsToRun.length,
         jobs_succeeded: jobsSucceeded,
         jobs_failed: jobsFailed,
+        total_vehicles_processed: totalVehiclesProcessed,
         execution_time_ms: response.execution_time_ms
       })
 
@@ -583,7 +608,7 @@ export class SchedulerService {
       }
 
       // Determine priority (for now, all are standard - we can enhance this later)
-      const priority: 'premium' | 'standard' | 'economy' = 'standard'
+      const priority = 'standard' as const
 
       // Get frequency
       const frequency = dealer.sftp_config_schedule_frequency || 'daily'
@@ -686,24 +711,24 @@ export class SchedulerService {
       economy: economyJobs.length
     })
 
-    // Execute premium jobs first with highest concurrency
+        // Execute premium jobs first with highest concurrency
     if (premiumJobs.length > 0) {
       logInfo(`Processing ${premiumJobs.length} premium jobs with max concurrency ${maxConcurrentPremium}`)
-      const premiumResults = await this.executeBatchWithConcurrency(premiumJobs, maxConcurrentPremium)
+      const premiumResults = await this.executeBatchWithConcurrency(premiumJobs, maxConcurrentPremium, smartSchedules)
       results.push(...premiumResults)
     }
 
     // Execute standard jobs next
     if (standardJobs.length > 0) {
       logInfo(`Processing ${standardJobs.length} standard jobs with max concurrency ${maxConcurrentStandard}`)
-      const standardResults = await this.executeBatchWithConcurrency(standardJobs, maxConcurrentStandard)
+      const standardResults = await this.executeBatchWithConcurrency(standardJobs, maxConcurrentStandard, smartSchedules)
       results.push(...standardResults)
     }
 
     // Execute economy jobs last with lower concurrency
     if (economyJobs.length > 0) {
       logInfo(`Processing ${economyJobs.length} economy jobs with max concurrency ${maxConcurrentEconomy}`)
-      const economyResults = await this.executeBatchWithConcurrency(economyJobs, maxConcurrentEconomy)
+      const economyResults = await this.executeBatchWithConcurrency(economyJobs, maxConcurrentEconomy, smartSchedules)
       results.push(...economyResults)
     }
 
@@ -713,7 +738,11 @@ export class SchedulerService {
   /**
    * Execute a batch of jobs with specific concurrency limit
    */
-  private async executeBatchWithConcurrency(jobs: ScheduledJob[], concurrencyLimit: number): Promise<JobResult[]> {
+  private async executeBatchWithConcurrency(
+    jobs: ScheduledJob[],
+    concurrencyLimit: number,
+    smartSchedules?: Map<string, SmartScheduleResult>
+  ): Promise<JobResult[]> {
     const results: JobResult[] = []
 
     // Process jobs in batches based on concurrency limit
@@ -722,26 +751,42 @@ export class SchedulerService {
 
       logInfo(`Processing batch ${Math.floor(i / concurrencyLimit) + 1}/${Math.ceil(jobs.length / concurrencyLimit)} with ${batch.length} jobs`)
 
+      // Publish job started events for this batch
+      if (smartSchedules) {
+        for (const job of batch) {
+          const schedule = smartSchedules.get(job.dealer_id)
+          await this.publishJobStartedEvent(job, schedule, 'scheduled')
+        }
+      }
+
       const batchResults = await Promise.allSettled(
         batch.map(job => this.executeJob(job))
       )
 
-      // Convert Promise.allSettled results to JobResult[]
+            // Convert Promise.allSettled results to JobResult[]
       for (let j = 0; j < batch.length; j++) {
         const result = batchResults[j]
         if (result.status === 'fulfilled') {
-          results.push(result.value)
+          const jobResult = result.value
+          results.push(jobResult)
+
+          // Publish job completed/failed event
+          if (jobResult.success) {
+            await this.publishJobCompletedEvent(jobResult)
+          } else {
+            await this.publishJobFailedEvent(jobResult)
+          }
         } else {
           // Handle rejected promise
           const job = batch[j]
-          results.push({
+          const failedJobResult = {
             job,
             execution: {
               id: `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
               job_id: job.id,
               dealer_id: job.dealer_id,
               platform: job.platform,
-              status: 'failed',
+              status: 'failed' as const,
               start_time: new Date(),
               end_time: new Date(),
               vehicles_found: 0,
@@ -756,7 +801,10 @@ export class SchedulerService {
             },
             success: false,
             error: result.reason?.message || 'Unknown error'
-          })
+          }
+
+          results.push(failedJobResult)
+          await this.publishJobFailedEvent(failedJobResult)
         }
       }
 
@@ -769,6 +817,179 @@ export class SchedulerService {
     }
 
     return results
+  }
+
+  /**
+   * Publish batch started event to event system
+   */
+  private async publishBatchStartedEvent(
+    batchId: string,
+    jobs: ScheduledJob[],
+    smartSchedules: Map<string, SmartScheduleResult>,
+    trigger: 'cron' | 'manual' | 'api'
+  ): Promise<void> {
+    try {
+      // Calculate priority distribution
+      const priorityDistribution = { premium: 0, standard: 0, economy: 0 }
+      const timezoneDistribution: Record<string, number> = {}
+
+      for (const job of jobs) {
+        const schedule = smartSchedules.get(job.dealer_id)
+        const priority = schedule?.priority || 'standard'
+        const timezone = schedule?.timezone || 'America/New_York'
+
+        priorityDistribution[priority as keyof typeof priorityDistribution]++
+        timezoneDistribution[timezone] = (timezoneDistribution[timezone] || 0) + 1
+      }
+
+      await this.eventClient.publishBatchStarted({
+        batchId,
+        trigger,
+        summary: {
+          totalJobs: jobs.length,
+          priorityDistribution,
+          timezoneDistribution
+        }
+      })
+
+      logInfo(`📡 Published batch started event for batch ${batchId}`)
+    } catch (error) {
+      logError('Failed to publish batch started event:', error)
+    }
+  }
+
+  /**
+   * Publish batch completed event to event system
+   */
+  private async publishBatchCompletedEvent(
+    batchId: string,
+    summary: {
+      startTime: string;
+      endTime: string;
+      durationMs: number;
+      totalJobs: number;
+      successfulJobs: number;
+      failedJobs: number;
+      totalVehiclesProcessed: number;
+      results: JobResult[];
+    }
+  ): Promise<void> {
+    try {
+      // Calculate performance metrics
+      const durations = summary.results.map(r => r.execution.performance_metrics?.duration_ms || 0)
+      const averageJobDuration = durations.length > 0 ? durations.reduce((sum, d) => sum + d, 0) / durations.length : 0
+
+      // Estimate concurrency utilization and throughput
+      const concurrencyUtilization = summary.totalJobs > 0 ? Math.min(1.0, summary.totalJobs / 20) : 0 // Based on max concurrency
+      const throughputPerHour = summary.durationMs > 0 ? (summary.totalJobs * 3600000) / summary.durationMs : 0
+
+      await this.eventClient.publishBatchCompleted({
+        batchId,
+        execution: {
+          startTime: summary.startTime,
+          endTime: summary.endTime,
+          durationMs: summary.durationMs
+        },
+        results: {
+          totalJobs: summary.totalJobs,
+          successfulJobs: summary.successfulJobs,
+          failedJobs: summary.failedJobs,
+          totalVehiclesProcessed: summary.totalVehiclesProcessed
+        },
+        performance: {
+          averageJobDuration,
+          concurrencyUtilization,
+          throughputPerHour
+        }
+      })
+
+      logInfo(`📡 Published batch completed event for batch ${batchId}`)
+    } catch (error) {
+      logError('Failed to publish batch completed event:', error)
+    }
+  }
+
+  /**
+   * Publish individual job events
+   */
+  private async publishJobStartedEvent(
+    job: ScheduledJob,
+    schedule?: SmartScheduleResult,
+    trigger: 'scheduled' | 'manual' | 'retry' = 'scheduled'
+  ): Promise<void> {
+    try {
+      await this.eventClient.publishJobStarted({
+        jobId: job.id,
+        dealerId: job.dealer_id,
+        dealerName: job.dealer_name,
+        platform: job.platform,
+        schedule: {
+          timezone: schedule?.timezone || 'America/New_York',
+          localTime: schedule?.localRunTime || '01:00 America/New_York',
+          utcTime: schedule?.optimalRunTime.toISOString() || new Date().toISOString(),
+          priority: (schedule?.priority || 'standard') as 'premium' | 'standard' | 'economy'
+        },
+        trigger
+      })
+    } catch (error) {
+      logError('Failed to publish job started event:', error)
+    }
+  }
+
+  /**
+   * Publish job completed event
+   */
+  private async publishJobCompletedEvent(result: JobResult): Promise<void> {
+    try {
+      await this.eventClient.publishJobCompleted({
+        jobId: result.job.id,
+        dealerId: result.job.dealer_id,
+        dealerName: result.job.dealer_name,
+        platform: result.job.platform,
+        execution: {
+          startTime: result.execution.start_time.toISOString(),
+          endTime: result.execution.end_time?.toISOString() || new Date().toISOString(),
+          durationMs: result.execution.performance_metrics?.duration_ms || 0,
+          vehiclesFound: result.execution.vehicles_found,
+          vehiclesProcessed: result.execution.vehicles_processed,
+          success: result.success
+        },
+        performance: {
+          apiCalls: result.execution.performance_metrics?.api_calls || 0,
+          rateLimitsHit: result.execution.performance_metrics?.rate_limits_hit || 0,
+          avgResponseTime: 0 // Can be calculated if we track individual response times
+        }
+      })
+    } catch (error) {
+      logError('Failed to publish job completed event:', error)
+    }
+  }
+
+  /**
+   * Publish job failed event
+   */
+  private async publishJobFailedEvent(result: JobResult): Promise<void> {
+    try {
+      await this.eventClient.publishJobFailed({
+        jobId: result.job.id,
+        dealerId: result.job.dealer_id,
+        dealerName: result.job.dealer_name,
+        platform: result.job.platform,
+        error: {
+          message: result.error || 'Unknown error',
+          retryable: true // Most errors are retryable
+        },
+        execution: {
+          startTime: result.execution.start_time.toISOString(),
+          endTime: result.execution.end_time?.toISOString() || new Date().toISOString(),
+          durationMs: result.execution.performance_metrics?.duration_ms || 0,
+          retryCount: 0, // Could be enhanced to track actual retry count
+          nextRetryAt: undefined // Could be calculated based on retry strategy
+        }
+      })
+    } catch (error) {
+      logError('Failed to publish job failed event:', error)
+    }
   }
 }
 
