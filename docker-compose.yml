@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: od-scheduler
+    profiles: ["dev"]
+    environment:
+      - PORT=3003
+      - NODE_ENV=development
+      # Required environment variables (dummy values for testing)
+      - OD_SUPABASE_URL=https://dummy.supabase.co
+      - OD_SUPABASE_SERVICE_ROLE=dummy_service_role_key
+      - OD_DATA_API_URL=https://dummy.api.com
+      - OD_SOAP_TRANSFORMER_URL=https://dummy.soap.com
+      - OD_API_KEY_SECRET=dummy_api_key_secret
+      # Optional environment variables
+      - PRIMARY_SOURCE=dealer_com_only
+      - DEALER_COM_ONLY=true
+      - ENABLE_HOMENET=false
+      - ENABLE_SITEMAP=false
+      - ENABLE_SCRAPING=false
+      - ENABLE_URL_SHORTENING=false
+      - DATABASE_URI=${SCHEDULER_DATABASE_URI_LOCAL}
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./src:/app/src:ro
+      - ./package.json:/app/package.json:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./dist:/app/dist
+    command: ["npm", "run", "dev:docker"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Add database service if needed
+  # db:
+  #   image: postgres:15-alpine
+  #   container_name: od-scheduler-db
+  #   environment:
+  #     - POSTGRES_DB=scheduler
+  #     - POSTGRES_USER=scheduler
+  #     - POSTGRES_PASSWORD=scheduler
+  #   ports:
+  #     - "5434:5432"
+  #   volumes:
+  #     - scheduler-db-data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U scheduler -d scheduler"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 40s
+
+# volumes:
+#   scheduler-db-data:

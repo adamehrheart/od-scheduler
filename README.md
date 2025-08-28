@@ -39,6 +39,33 @@ A serverless scheduling service built on Vercel that manages data pull jobs for 
 
 ## 🛠️ Installation
 
+### **Option 1: Docker Development (Recommended)**
+
+1. **Start development environment:**
+   ```bash
+   cd od-scheduler
+   ./dev-setup.sh
+   ```
+
+2. **View logs:**
+   ```bash
+   npm run docker:dev:logs
+   ```
+
+3. **Test endpoints:**
+   ```bash
+   # Health check
+   curl http://localhost:3003/health
+
+   # Run jobs
+   curl -X POST http://localhost:3003/api/jobs/run
+
+   # Dealer-specific jobs
+   curl -X POST 'http://localhost:3003/api/jobs/dealer?dealer_id=test'
+   ```
+
+### **Option 2: Local Development**
+
 1. **Clone and install dependencies:**
    ```bash
    cd od-scheduler
@@ -73,7 +100,14 @@ A serverless scheduling service built on Vercel that manages data pull jobs for 
    OD_API_KEY_SECRET=your_api_key_secret
    ```
 
-4. **Deploy to Vercel:**
+4. **Start development server:**
+   ```bash
+   npm run dev
+   ```
+
+### **Option 3: Production Deployment**
+
+1. **Deploy to Vercel:**
    ```bash
    vercel --prod
    ```
@@ -95,6 +129,39 @@ A serverless scheduling service built on Vercel that manages data pull jobs for 
 - `/api/cron/run-jobs` - Daily job execution (9 AM)
 - `/api/cron/cleanup` - Daily cleanup (2 AM)
 - `/api/jobs/status` - Job status monitoring
+
+## 🐳 Docker Development
+
+### **Quick Start**
+```bash
+# Start development environment
+./dev-setup.sh
+
+# View logs
+npm run docker:dev:logs
+
+# Restart services
+npm run docker:dev:restart
+
+# Rebuild containers
+npm run docker:dev:build
+
+# Stop services
+npm run docker:dev:down
+```
+
+### **Docker Architecture**
+- **Multi-stage Dockerfile** - Development and production targets
+- **Live code reloading** - Volume mounts with automatic rebuilds
+- **Health checks** - Proactive service monitoring
+- **Automated setup** - One-command environment initialization
+- **Enterprise-grade** - Production-ready containerization
+
+### **Available Services**
+- **Scheduler API**: http://localhost:3003
+- **Health Check**: http://localhost:3003/health
+- **Job Execution**: http://localhost:3003/api/jobs/run
+- **Dealer Jobs**: http://localhost:3003/api/jobs/dealer?dealer_id=test
 
 ## 🔧 Configuration
 

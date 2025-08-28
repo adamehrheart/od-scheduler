@@ -196,45 +196,87 @@ export async function fetchAllDealerComInventory(
   config: DealerComPaginationConfig,
   logFunction?: (level: string, message: string, data?: any) => void
 ): Promise<{ vehicles: DealerComVehicle[], totalCount: number }> {
-  logFunction?.('info', 'Starting Dealer.com inventory fetch with multi-config strategy', {
+  logFunction?.('info', 'Starting Dealer.com inventory fetch with proper pagination', {
     siteId: config.siteId
   });
 
   const seenVins = new Set<string>();
   const allVehicles: DealerComVehicle[] = [];
-  let totalCount = 0;
+  let grandTotalCount = 0;
 
   // Fetch different inventory segments
   const listingConfigs = ['auto-new', 'auto-certified', 'auto-used'];
-  let grandTotalCount = 0;
 
   try {
     for (const listingConfigId of listingConfigs) {
       logFunction?.('info', `Fetching ${listingConfigId} inventory...`);
 
-      const response = await fetchDealerComPageWithConfig(
-        { ...config, pageSize: 200 },
+      // First, get the total count for this segment
+      const firstPageResponse = await fetchDealerComPageWithConfig(
+        { ...config, pageSize: 1 }, // Use pageSize 1 to get total count quickly
         0,
         logFunction,
         'ASC',
         listingConfigId
       );
 
-      const items = response.inventory || [];
-      const segmentTotal = response.pageInfo?.totalCount || 0;
+      const segmentTotal = firstPageResponse.pageInfo?.totalCount || 0;
+      logFunction?.('info', `${listingConfigId} segment has ${segmentTotal} total vehicles`);
+
+      if (segmentTotal === 0) {
+        logFunction?.('info', `Skipping ${listingConfigId} segment - no vehicles`);
+        continue;
+      }
+
+      // Now fetch all pages for this segment
+      const pageSize = config.pageSize || DEALER_SOURCES.pagination.dealer_com_page_size;
+      const maxPages = config.maxPages || DEALER_SOURCES.pagination.max_pages;
+      const totalPages = Math.min(Math.ceil(segmentTotal / pageSize), maxPages);
+
+      logFunction?.('info', `Fetching ${totalPages} pages for ${listingConfigId} segment`, {
+        segmentTotal,
+        pageSize,
+        maxPages,
+        totalPages
+      });
+
       let addedFromSegment = 0;
 
-      for (const vehicle of items) {
-        const vin = (vehicle as any).vin;
-        if (vin && !seenVins.has(vin)) {
-          seenVins.add(vin);
-          allVehicles.push(vehicle);
-          addedFromSegment++;
+      for (let page = 0; page < totalPages; page++) {
+        const pageStart = page * pageSize;
+
+        logFunction?.('info', `Fetching ${listingConfigId} page ${page + 1}/${totalPages}`, {
+          pageStart,
+          pageSize
+        });
+
+        const response = await fetchDealerComPageWithConfig(
+          { ...config, pageSize },
+          pageStart,
+          logFunction,
+          'ASC',
+          listingConfigId
+        );
+
+        const items = response.inventory || [];
+
+        for (const vehicle of items) {
+          const vin = (vehicle as any).vin;
+          if (vin && !seenVins.has(vin)) {
+            seenVins.add(vin);
+            allVehicles.push(vehicle);
+            addedFromSegment++;
+          }
         }
+
+        logFunction?.('info', `${listingConfigId} page ${page + 1} complete`, {
+          pageVehicles: items.length,
+          addedFromPage: addedFromSegment,
+          totalAccumulated: allVehicles.length
+        });
       }
 
       logFunction?.('info', `${listingConfigId} segment complete`, {
-        segmentVehicles: items.length,
         segmentTotal,
         addedFromSegment,
         totalAccumulated: allVehicles.length
@@ -243,7 +285,7 @@ export async function fetchAllDealerComInventory(
       grandTotalCount += segmentTotal;
     }
 
-    logFunction?.('info', 'Dealer.com multi-config inventory fetch complete', {
+    logFunction?.('info', 'Dealer.com inventory fetch complete', {
       totalVehicles: allVehicles.length,
       grandTotalCount,
       coverage: `${((allVehicles.length / grandTotalCount) * 100).toFixed(1)}%`,

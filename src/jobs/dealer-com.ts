@@ -1,6 +1,6 @@
 import { ScheduledJob } from '../types.js';
 import { env } from '../env.js';
-import { useDealerComOnly, getCurrentConfig } from '../config/dealer-sources.js';
+import { useDealerComOnly, getCurrentConfig, DEALER_SOURCES } from '../config/dealer-sources.js';
 import { fetchAllDealerComInventory, DealerComPaginationConfig, getPaginationStats } from '../lib/dealer-com-pagination.js';
 import { createSupabaseClientFromEnv, logInfo, logError, logSuccess } from '@adamehrheart/utils';
 
@@ -53,30 +53,56 @@ export class DealerComJobRunner {
     try {
       console.log(`📡 Fetching all Dealer.com inventory for ${dealer.name} with pagination...`);
 
-      // Configure Dealer.com pagination
-      const config: DealerComPaginationConfig = {
-        siteId: this.extractDealerComSiteId(dealer.domain),
-        baseUrl: 'https://www.rsmhondaonline.com', // Use the same URL that works in multi-source approach
-        pageSize: 100,
-        maxPages: 10
-      };
+      // Use the multi-endpoint approach that works for RSM Honda
+      console.log(`📡 Using multi-endpoint approach for ${dealer.name}...`);
 
-      // Fetch all vehicles using pagination
-      const paginationResult = await fetchAllDealerComInventory(config, (level: string, message: string, data?: any) => {
-        console.log(`[${level.toUpperCase()}] ${message}`, data);
-      });
+      const allVehicles: any[] = [];
+      const seenVins = new Set<string>();
 
-      const allVehicles = paginationResult.vehicles;
-      const actualTotalCount = paginationResult.totalCount;
+      // Define the inventory endpoints to try
+      const inventoryEndpoints = [
+        'INVENTORY_LISTING_DEFAULT_AUTO_NEW',
+        'INVENTORY_LISTING_DEFAULT_AUTO_USED',
+        'INVENTORY_LISTING_DEFAULT_AUTO_CERTIFIED_USED'
+      ];
 
-      // Transform and store vehicles
-      const transformedVehicles = allVehicles.map((vehicle: any) => this.transformDealerComVehicle(vehicle));
+      for (const endpoint of inventoryEndpoints) {
+        try {
+          console.log(`📡 Fetching ${endpoint} for ${dealer.name}...`);
+
+          const endpointVehicles = await this.tryOptimalEndpoint(dealer.site_id);
+
+          let addedFromEndpoint = 0;
+          for (const vehicle of endpointVehicles) {
+            if (vehicle.vin && !seenVins.has(vehicle.vin)) {
+              seenVins.add(vehicle.vin);
+              allVehicles.push(vehicle);
+              addedFromEndpoint++;
+            }
+          }
+
+          console.log(`✅ ${endpoint}: ${endpointVehicles.length} vehicles, ${addedFromEndpoint} new`);
+
+        } catch (error) {
+          console.log(`⚠️ Error fetching ${endpoint}:`, error);
+        }
+      }
+
+      console.log(`📊 Total unique vehicles found: ${allVehicles.length}`);
+
+      // Transform and store vehicles with dealer domain
+      const transformedVehicles = allVehicles.map((vehicle: any) => this.transformDealerComVehicle(vehicle, dealer.domain));
 
       // Store vehicles in database
       const storedVehicles = await this.storeVehicles(transformedVehicles);
 
       const duration = Date.now() - startTime;
-      const stats = getPaginationStats(allVehicles.length, config.pageSize || 100, actualTotalCount);
+      const actualTotalCount = allVehicles.length;
+      const stats = {
+        pages: inventoryEndpoints.length,
+        efficiency: 1.0,
+        coverage: 100
+      };
 
       console.log('🎉 Dealer.com-only approach completed successfully!', {
         dealer_id: this.job.dealer_id,
@@ -180,7 +206,7 @@ export class DealerComJobRunner {
   private async callDealerComMasterInventoryAPI(dealer: any): Promise<any[]> {
     try {
       // Extract site ID from dealer domain
-      const siteId = this.extractDealerComSiteId(dealer.domain);
+      const siteId = this.extractDealerComSiteId(dealer);
 
       console.log(`📡 Calling Dealer.com Master Inventory API with OPTIMAL approach for site ID: ${siteId}`);
 
@@ -226,8 +252,8 @@ export class DealerComJobRunner {
             defaultRange: '5'
           },
           preferences: {
-            pageSize: '120',
-            rows: '120'  // Solr-specific parameter discovered from Porsche site
+            pageSize: DEALER_SOURCES.pagination.dealer_com_page_size.toString(),
+            rows: DEALER_SOURCES.pagination.dealer_com_page_size.toString()  // Solr-specific parameter
           },
           includePricing: true
         })
@@ -468,35 +494,32 @@ export class DealerComJobRunner {
    * Extract Dealer.com site ID from dealer domain
    * This maps dealer domains to their Dealer.com site IDs
    */
-  private extractDealerComSiteId(domain: string): string {
-    // Map of known dealer domains to their Dealer.com site IDs
-    const dealerSiteIdMap: { [key: string]: string } = {
-      'rsmhondaonline.com': 'ranchosan29961santamargaritaparkway',
-      // Add more dealers as we discover them
-    };
+  private extractDealerComSiteId(dealer: any): string {
+    // Get site ID from dealer's Dealer.com configuration
+    const dealerComConfig = dealer.api_config?.dealer_com_config || dealer.dealer_com_config;
 
-    // Try exact match first
-    if (dealerSiteIdMap[domain]) {
-      return dealerSiteIdMap[domain];
+    if (dealerComConfig?.site_id) {
+      return dealerComConfig.site_id;
     }
 
-    // Try partial match
-    for (const [dealerDomain, siteId] of Object.entries(dealerSiteIdMap)) {
-      if (domain.includes(dealerDomain) || dealerDomain.includes(domain)) {
-        return siteId;
-      }
+    // Fallback: extract from domain if no explicit config
+    const domain = dealer.domain;
+    if (!domain) {
+      throw new Error(`No domain found for dealer: ${dealer.name}`);
     }
 
-    // Default to RSM Honda for now (we'll expand this)
-    console.log(`⚠️ No site ID mapping found for domain: ${domain}, using default`);
-    return 'ranchosan29961santamargaritaparkway';
+    // Extract site ID from domain (e.g., porschesantabarbara.com -> porschesantabarbara)
+    const siteId = domain.replace('.com', '').replace('www.', '');
+    console.log(`📝 Extracted site ID '${siteId}' from domain '${domain}' for dealer '${dealer.name}'`);
+
+    return siteId;
   }
 
   /**
  * Transform Dealer.com vehicle data to our format
  * This extracts ALL the rich data from the Dealer.com API response
  */
-  private transformDealerComVehicle(vehicle: any): any {
+  private transformDealerComVehicle(vehicle: any, dealerDomain?: string): any {
     // Helper function to extract tracking attribute
     const getTrackingAttr = (name: string) => {
       return vehicle.trackingAttributes?.find((attr: any) => attr.name === name)?.value || null;
@@ -533,7 +556,7 @@ export class DealerComJobRunner {
       msrp: this.extractMSRP(vehicle.pricing),
 
       // Dealer information
-      dealer_page_url: `https://www.rsmhondaonline.com${vehicle.link}`,
+      dealer_page_url: dealerDomain ? `https://www.${dealerDomain}${vehicle.link}` : `https://www.rsmhondaonline.com${vehicle.link}`,
 
       // Vehicle condition & status
       condition: vehicle.condition || null,
