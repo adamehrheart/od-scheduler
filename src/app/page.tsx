@@ -53,9 +53,17 @@ export default function SchedulerDashboard() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-6xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">
-          🚀 Open Dealer Scheduler Dashboard
-        </h1>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">
+            🚀 Open Dealer Scheduler Dashboard
+          </h1>
+          <a
+            href="/api/monitor"
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+          >
+            📊 System Monitor
+          </a>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Health & Core Endpoints */}
