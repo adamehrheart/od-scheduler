@@ -8,6 +8,7 @@ import {
   RunJobsResponse,
   ApiResponse
 } from '@adamehrheart/schema'
+import { enterpriseLogger } from '@/utils/enterprise-logger'
 
 interface JobListResponse {
   success: boolean
@@ -212,7 +213,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(response)
 
   } catch (error) {
-    console.error('List jobs error:', error)
+    enterpriseLogger.logError('List jobs error', error instanceof Error ? error : new Error('Unknown error'), {
+      operation: 'list-jobs',
+      traceId: traceContext.trace_id
+    })
     traceManager.endSpan(spanId, { success: false, error: error instanceof Error ? error.message : 'Unknown error' })
 
     return NextResponse.json(
@@ -320,7 +324,10 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Create job error:', error)
+    enterpriseLogger.logError('Create job error', error instanceof Error ? error : new Error('Unknown error'), {
+      operation: 'create-job',
+      traceId: traceContext.trace_id
+    })
     traceManager.endSpan(spanId, { success: false, error: error instanceof Error ? error.message : 'Unknown error' })
 
     return NextResponse.json(
