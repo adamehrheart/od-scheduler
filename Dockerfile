@@ -5,11 +5,15 @@
 FROM node:22-alpine AS base
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and Doppler CLI
 RUN apk add --no-cache \
     wget \
     curl \
+    gnupg \
     && rm -rf /var/cache/apk/*
+
+# Install Doppler CLI
+RUN (curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh || wget -t 3 -qO- https://cli.doppler.com/install.sh) | sh
 
 # Copy package files
 COPY package*.json ./
@@ -25,8 +29,8 @@ RUN npm ci
 COPY src ./src
 # Expose port
 EXPOSE 3003
-# Start the server directly without doppler for development
-CMD ["npm", "run", "dev:docker"]
+# Start the server with Doppler for development
+CMD ["doppler", "run", "--", "npm", "run", "dev"]
 
 # Build stage
 FROM base AS build
@@ -41,11 +45,15 @@ RUN npm run build
 FROM node:22-alpine AS production
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and Doppler CLI
 RUN apk add --no-cache \
     wget \
     curl \
+    gnupg \
     && rm -rf /var/cache/apk/*
+
+# Install Doppler CLI
+RUN (curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh || wget -t 3 -qO- https://cli.doppler.com/install.sh) | sh
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
@@ -66,7 +74,7 @@ EXPOSE 3003
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:3003/health || exit 1
+    CMD curl -f http://localhost:3003/api/health || exit 1
 
-# Start the application
-CMD ["node", "dist/src/dev-server.js"]
+# Start the application with Doppler
+CMD ["doppler", "run", "--", "node", "dist/src/dev-server.js"]

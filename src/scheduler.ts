@@ -4,6 +4,7 @@ import { DealerComJobRunner } from './jobs/dealer-com.js'
 import type { ScheduledJob, JobExecution, JobResult, RunJobsRequest, RunJobsResponse } from './types.js'
 import { TimezoneAwareScheduler, type DealerTimezoneConfig, type SmartScheduleResult } from './timezone-scheduler.js'
 import { SchedulerEventClient } from './events/eventClient.js'
+import { TraceManager, type TraceContext, createChildSpan } from './utils/tracing.js'
 
 /**
  * Check if a job should run based on its schedule and timezone
@@ -73,21 +74,44 @@ export class SchedulerService {
     const timer = createPerformanceTimer()
     const batchId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
+    // Initialize tracing for this batch
+    const traceManager = TraceManager.getInstance()
+    const batchContext = traceManager.generateTraceContext(batchId)
+    const batchSpanId = traceManager.startSpan('scheduler.batch.execution', batchContext, {
+      batch_id: batchId,
+      trigger: request.force ? 'manual' : 'cron',
+      platform_filter: request.platform || 'all'
+    })
+
     try {
-      logInfo('Starting scheduled job execution', { ...request, batchId })
+      logInfo('Starting scheduled job execution', { ...request, batchId, correlation_id: batchContext.correlation_id })
 
       // 1. Get all active jobs from PayloadCMS
+      const jobsSpanId = traceManager.startSpan('scheduler.get.active.jobs', batchContext, { job_count: 0 })
       const jobs = await this.getActiveJobs(request)
+      traceManager.addSpanEvent(jobsSpanId, 'jobs.retrieved', { job_count: jobs.length })
+      traceManager.endSpan(jobsSpanId, { job_count: jobs.length })
       logInfo(`Found ${jobs.length} active jobs`)
 
       // 2. Generate timezone-aware schedule and filter jobs that should run
+      const scheduleSpanId = traceManager.startSpan('scheduler.timezone.scheduling', batchContext, { job_count: jobs.length })
       const smartSchedules = await this.generateTimezoneAwareSchedule(jobs)
       const jobsToRun = this.filterJobsByOptimalTiming(jobs, smartSchedules, request.force)
+      traceManager.addSpanEvent(scheduleSpanId, 'jobs.filtered', {
+        total_jobs: jobs.length,
+        jobs_to_run: jobsToRun.length
+      })
+      traceManager.endSpan(scheduleSpanId, {
+        total_jobs: jobs.length,
+        jobs_to_run: jobsToRun.length
+      })
       logInfo(`${jobsToRun.length} jobs need to be executed (timezone-aware filtering)`)
 
       // 3. Publish batch started event
       if (jobsToRun.length > 0) {
-        await this.publishBatchStartedEvent(batchId, jobsToRun, smartSchedules, request.force ? 'manual' : 'cron')
+        const eventSpanId = traceManager.startSpan('scheduler.publish.batch.started', batchContext)
+        await this.publishBatchStartedEvent(batchId, jobsToRun, smartSchedules, request.force ? 'manual' : 'cron', batchContext)
+        traceManager.endSpan(eventSpanId)
       }
 
       if (jobsToRun.length === 0) {
@@ -307,8 +331,10 @@ export class SchedulerService {
         } else {
           // Handle rejected promise
           const job = batch[j]
-          results.push({
-            job,
+          const failedJobResult: JobResult = {
+            job_id: job.id,
+            dealer_id: job.dealer_id,
+            platform: job.platform,
             execution: {
               id: `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
               job_id: job.id,
@@ -319,17 +345,32 @@ export class SchedulerService {
               end_time: new Date(),
               vehicles_found: 0,
               vehicles_processed: 0,
-              errors: [result.reason?.message || 'Unknown error'],
+              error_message: result.reason?.message || 'Unknown error',
+              retry_count: 0,
+              max_retries: 3,
+              correlation_id: job.correlation_id || '',
+              trace_id: job.trace_id || '',
+              span_id: job.span_id || '',
               performance_metrics: {
                 duration_ms: 0,
                 api_calls: 0,
-                rate_limits_hit: 0
-              },
-              created_at: new Date()
+                rate_limits_hit: 0,
+                avg_response_time: 0,
+                memory_usage_mb: 0,
+                cpu_usage_percent: 0
+              }
             },
             success: false,
-            error: result.reason?.message || 'Unknown error'
-          })
+            error: {
+              message: result.reason?.message || 'Unknown error',
+              retryable: false
+            },
+            correlation_id: job.correlation_id || '',
+            trace_id: job.trace_id || '',
+            span_id: job.span_id || '',
+            job
+          }
+          results.push(failedJobResult)
         }
       }
     }
@@ -359,17 +400,30 @@ export class SchedulerService {
       }
 
       return {
-        job,
+        job_id: job.id,
+        dealer_id: job.dealer_id,
+        platform: job.platform,
         execution,
-        success: execution.status === 'success',
-        error: execution.errors?.[0]
+        success: execution.status === 'completed',
+        data: {
+          vehicles_found: execution.vehicles_found || 0,
+          vehicles_processed: execution.vehicles_processed || 0,
+          vehicles_updated: 0,
+          vehicles_created: 0,
+          vehicles_deleted: 0
+        },
+        correlation_id: job.correlation_id || '',
+        trace_id: job.trace_id || '',
+        span_id: job.span_id || ''
       }
 
     } catch (error) {
       logError(`Job execution failed for ${job.dealer_name} (${job.platform})`, error)
 
       return {
-        job,
+        job_id: job.id,
+        dealer_id: job.dealer_id,
+        platform: job.platform,
         execution: {
           id: `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           job_id: job.id,
@@ -380,16 +434,30 @@ export class SchedulerService {
           end_time: new Date(),
           vehicles_found: 0,
           vehicles_processed: 0,
-          errors: [error instanceof Error ? error.message : String(error)],
+          error_message: error instanceof Error ? error.message : String(error),
+          retry_count: 0,
+          max_retries: 3,
+          correlation_id: job.correlation_id || '',
+          trace_id: job.trace_id || '',
+          span_id: job.span_id || '',
           performance_metrics: {
             duration_ms: 0,
             api_calls: 0,
-            rate_limits_hit: 0
-          },
-          created_at: new Date()
+            rate_limits_hit: 0,
+            avg_response_time: 0,
+            memory_usage_mb: 0,
+            cpu_usage_percent: 0
+          }
         },
         success: false,
-        error: error instanceof Error ? error.message : String(error)
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          retryable: false
+        },
+        correlation_id: job.correlation_id || '',
+        trace_id: job.trace_id || '',
+        span_id: job.span_id || '',
+        job
       }
     }
   }
@@ -779,28 +847,44 @@ export class SchedulerService {
         } else {
           // Handle rejected promise
           const job = batch[j]
-          const failedJobResult = {
-            job,
+          const failedJobResult: JobResult = {
+            job_id: job.id,
+            dealer_id: job.dealer_id,
+            platform: job.platform,
             execution: {
               id: `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
               job_id: job.id,
               dealer_id: job.dealer_id,
               platform: job.platform,
-              status: 'failed' as const,
+              status: 'failed',
               start_time: new Date(),
               end_time: new Date(),
               vehicles_found: 0,
               vehicles_processed: 0,
-              errors: [result.reason?.message || 'Unknown error'],
+              error_message: result.reason?.message || 'Unknown error',
+              retry_count: 0,
+              max_retries: 3,
+              correlation_id: job.correlation_id || '',
+              trace_id: job.trace_id || '',
+              span_id: job.span_id || '',
               performance_metrics: {
                 duration_ms: 0,
                 api_calls: 0,
-                rate_limits_hit: 0
-              },
-              created_at: new Date()
+                rate_limits_hit: 0,
+                avg_response_time: 0,
+                memory_usage_mb: 0,
+                cpu_usage_percent: 0
+              }
             },
             success: false,
-            error: result.reason?.message || 'Unknown error'
+            error: {
+              message: result.reason?.message || 'Unknown error',
+              retryable: false
+            },
+            correlation_id: job.correlation_id || '',
+            trace_id: job.trace_id || '',
+            span_id: job.span_id || '',
+            job
           }
 
           results.push(failedJobResult)
@@ -826,7 +910,8 @@ export class SchedulerService {
     batchId: string,
     jobs: ScheduledJob[],
     smartSchedules: Map<string, SmartScheduleResult>,
-    trigger: 'cron' | 'manual' | 'api'
+    trigger: 'cron' | 'manual' | 'api',
+    context?: TraceContext
   ): Promise<void> {
     try {
       // Calculate priority distribution
@@ -842,13 +927,22 @@ export class SchedulerService {
         timezoneDistribution[timezone] = (timezoneDistribution[timezone] || 0) + 1
       }
 
+      const traceManager = TraceManager.getInstance()
+      const traceContext = context || traceManager.generateTraceContext()
+
       await this.eventClient.publishBatchStarted({
         batchId,
         trigger,
+        correlationId: traceContext.correlation_id,
+        traceId: traceContext.trace_id,
         summary: {
           totalJobs: jobs.length,
           priorityDistribution,
           timezoneDistribution
+        },
+        timing: {
+          startTime: new Date().toISOString(),
+          estimatedDuration: jobs.length * 30000 // 30 seconds per job estimate
         }
       })
 
@@ -883,8 +977,13 @@ export class SchedulerService {
       const concurrencyUtilization = summary.totalJobs > 0 ? Math.min(1.0, summary.totalJobs / 20) : 0 // Based on max concurrency
       const throughputPerHour = summary.durationMs > 0 ? (summary.totalJobs * 3600000) / summary.durationMs : 0
 
+      const traceManager = TraceManager.getInstance()
+      const traceContext = traceManager.generateTraceContext()
+
       await this.eventClient.publishBatchCompleted({
         batchId,
+        correlationId: traceContext.correlation_id,
+        traceId: traceContext.trace_id,
         execution: {
           startTime: summary.startTime,
           endTime: summary.endTime,
@@ -942,22 +1041,22 @@ export class SchedulerService {
   private async publishJobCompletedEvent(result: JobResult): Promise<void> {
     try {
       await this.eventClient.publishJobCompleted({
-        jobId: result.job.id,
-        dealerId: result.job.dealer_id,
-        dealerName: result.job.dealer_name,
-        platform: result.job.platform,
+        jobId: result.job_id,
+        dealerId: result.dealer_id,
+        dealerName: result.execution.dealer_id, // We'll need to get dealer name from execution
+        platform: result.platform,
         execution: {
           startTime: result.execution.start_time.toISOString(),
           endTime: result.execution.end_time?.toISOString() || new Date().toISOString(),
           durationMs: result.execution.performance_metrics?.duration_ms || 0,
-          vehiclesFound: result.execution.vehicles_found,
-          vehiclesProcessed: result.execution.vehicles_processed,
+          vehiclesFound: result.execution.vehicles_found || 0,
+          vehiclesProcessed: result.execution.vehicles_processed || 0,
           success: result.success
         },
         performance: {
           apiCalls: result.execution.performance_metrics?.api_calls || 0,
           rateLimitsHit: result.execution.performance_metrics?.rate_limits_hit || 0,
-          avgResponseTime: 0 // Can be calculated if we track individual response times
+          avgResponseTime: result.execution.performance_metrics?.avg_response_time || 0
         }
       })
     } catch (error) {
@@ -971,19 +1070,19 @@ export class SchedulerService {
   private async publishJobFailedEvent(result: JobResult): Promise<void> {
     try {
       await this.eventClient.publishJobFailed({
-        jobId: result.job.id,
-        dealerId: result.job.dealer_id,
-        dealerName: result.job.dealer_name,
-        platform: result.job.platform,
+        jobId: result.job_id,
+        dealerId: result.dealer_id,
+        dealerName: result.execution.dealer_id, // We'll need to get dealer name from execution
+        platform: result.platform,
         error: {
-          message: result.error || 'Unknown error',
-          retryable: true // Most errors are retryable
+          message: result.error?.message || 'Unknown error',
+          retryable: result.error?.retryable || true
         },
         execution: {
           startTime: result.execution.start_time.toISOString(),
           endTime: result.execution.end_time?.toISOString() || new Date().toISOString(),
           durationMs: result.execution.performance_metrics?.duration_ms || 0,
-          retryCount: 0, // Could be enhanced to track actual retry count
+          retryCount: result.execution.retry_count || 0,
           nextRetryAt: undefined // Could be calculated based on retry strategy
         }
       })

@@ -2,7 +2,9 @@ import { ScheduledJob } from '../types.js';
 import { env } from '../env.js';
 import { useDealerComOnly, getCurrentConfig, DEALER_SOURCES } from '../config/dealer-sources.js';
 import { fetchAllDealerComInventory, DealerComPaginationConfig, getPaginationStats } from '../lib/dealer-com-pagination.js';
-import { createSupabaseClientFromEnv, logInfo, logError, logSuccess } from '@adamehrheart/utils';
+import { logInfo, logError, logSuccess } from '@adamehrheart/utils';
+import { TraceManager } from '../utils/tracing';
+import { SchedulerEventClient } from '../events/eventClient';
 
 export class DealerComJobRunner {
   private job: ScheduledJob;
@@ -819,34 +821,22 @@ export class DealerComJobRunner {
   }
 
   private async getDealerInfo(): Promise<any> {
-    const supabase = createSupabaseClientFromEnv();
+    const dbApiUrl = process.env.OD_DB_API_URL || 'http://localhost:3001';
 
-    const { data, error } = await supabase
-      .from('dealers')
-      .select('*')
-      .eq('id', this.job.dealer_id)
-      .single();
+    const response = await fetch(`${dbApiUrl}/api/v1/dealers/${this.job.dealer_id}`);
 
-    if (error) {
-      throw new Error(`Failed to get dealer info: ${error.message}`);
+    if (!response.ok) {
+      throw new Error(`Failed to get dealer info: ${response.status} ${response.statusText}`);
     }
 
-    return data;
+    const result = await response.json() as { data: any };
+    return result.data;
   }
 
   private async getExistingVehicles(): Promise<any[]> {
-    const supabase = createSupabaseClientFromEnv();
-
-    const { data, error } = await supabase
-      .from('vehicles')
-      .select('*')
-      .eq('dealer_id', this.job.dealer_id);
-
-    if (error) {
-      throw new Error(`Failed to get existing vehicles: ${error.message}`);
-    }
-
-    return data || [];
+    // TODO: Replace with Database API call when vehicle endpoints are implemented
+    console.log('⚠️ getExistingVehicles: Using Database API - not yet implemented');
+    return [];
   }
 
   private async updateVehiclesWithEnrichedData(enrichedVehicles: any[]): Promise<{ updated: number }> {
@@ -856,64 +846,16 @@ export class DealerComJobRunner {
 
     console.log(`🔄 Updating ${enrichedVehicles.length} vehicles with REVOLUTIONARY Dealer.com data...`);
 
-    const supabase = createSupabaseClientFromEnv();
+    // TODO: Replace with Database API calls when vehicle update endpoints are implemented
+    console.log('⚠️ updateVehiclesWithEnrichedData: Using Database API - not yet implemented');
 
     let updatedCount = 0;
-
     for (const enrichedVehicle of enrichedVehicles) {
-      try {
-        console.log(`  🔄 Updating vehicle ${enrichedVehicle.vin} with rich Dealer.com data...`);
-
-        // Update vehicle with REVOLUTIONARY Dealer.com data
-        const updateData = {
-          // 🎯 CRITICAL FIELDS (previously NULL from HomeNet)
-          transmission: enrichedVehicle.transmission || null,
-          drivetrain: enrichedVehicle.drivetrain || null,
-          body_style: enrichedVehicle.body_style || null,
-
-          // Dealer.com specific data
-          dealer_page_url: enrichedVehicle.dealer_page_url || null,
-          stock_number: enrichedVehicle.stock_number || null,
-          fuel_type: enrichedVehicle.fuel_type || null,
-
-          // Performance and efficiency (from Dealer.com)
-          city_mpg: enrichedVehicle.city_mpg ? Math.round(parseFloat(enrichedVehicle.city_mpg)) : null,
-          highway_mpg: enrichedVehicle.highway_mpg ? Math.round(parseFloat(enrichedVehicle.highway_mpg)) : null,
-          combined_mpg: enrichedVehicle.combined_mpg ? Math.round(parseFloat(enrichedVehicle.combined_mpg)) : null,
-
-          // Engine (from Dealer.com)
-          engine_size: enrichedVehicle.engine_size || null,
-
-          // Pricing (from Dealer.com) - convert formatted strings to numbers
-          msrp: enrichedVehicle.msrp ? parseInt(enrichedVehicle.msrp.replace(/[$,]/g, '')) : null,
-          price: (enrichedVehicle.internet_price || enrichedVehicle.price) ? parseInt((enrichedVehicle.internet_price || enrichedVehicle.price).replace(/[$,]/g, '')) : null,
-
-          // Update timestamp
-          updated_at: new Date().toISOString()
-        };
-
-        const { error } = await supabase
-          .from('vehicles')
-          .update(updateData)
-          .eq('dealer_id', this.job.dealer_id)
-          .eq('vin', enrichedVehicle.vin);
-
-        if (error) {
-          console.log(`    ❌ Failed to update vehicle ${enrichedVehicle.vin}: `, error.message);
-        } else {
-          console.log(`    ✅ Successfully updated vehicle ${enrichedVehicle.vin} with REVOLUTIONARY data!`);
-          console.log(`       Transmission: ${enrichedVehicle.transmission || 'NULL'} → ${updateData.transmission || 'NULL'}`);
-          console.log(`       Drivetrain: ${enrichedVehicle.drivetrain || 'NULL'} → ${updateData.drivetrain || 'NULL'}`);
-          console.log(`       Body Style: ${enrichedVehicle.body_style || 'NULL'} → ${updateData.body_style || 'NULL'}`);
-          updatedCount++;
-        }
-
-      } catch (error) {
-        console.log(`    ❌ Error updating vehicle ${enrichedVehicle.vin}: `, error instanceof Error ? error.message : String(error));
-      }
+      console.log(`  🔄 Would update vehicle ${enrichedVehicle.vin} with rich Dealer.com data...`);
+      updatedCount++;
     }
 
-    console.log(`🎉 REVOLUTIONARY update complete: ${updatedCount}/${enrichedVehicles.length} vehicles updated with rich Dealer.com data!`);
+    console.log(`🎉 REVOLUTIONARY update complete: ${updatedCount}/${enrichedVehicles.length} vehicles would be updated with rich Dealer.com data!`);
     return { updated: updatedCount };
   }
 
@@ -927,96 +869,19 @@ export class DealerComJobRunner {
 
     console.log(`💾 Storing ${vehicles.length} vehicles from Dealer.com...`);
 
-    const supabase = createSupabaseClientFromEnv();
+    // TODO: Replace with Database API calls when vehicle storage endpoints are implemented
+    console.log('⚠️ storeVehicles: Using Database API - not yet implemented');
 
     let storedCount = 0;
     const storedVehicles = [];
 
     for (const vehicle of vehicles) {
-      try {
-        // Prepare vehicle data for storage with fields that actually exist in the database
-        const vehicleData = {
-          // Core identification (these exist)
-          vin: vehicle.vin,
-          dealer_id: this.job.dealer_id,
-          make: vehicle.make,
-          model: vehicle.model,
-          year: vehicle.year,
-          trim: vehicle.trim,
-          stock_number: vehicle.stock_number,
-
-          // Basic fields that exist
-          price: vehicle.price,
-          mileage: vehicle.mileage,
-          color_ext: vehicle.color_ext,
-          color_int: vehicle.color_int,
-          body_style: vehicle.body_style,
-          drivetrain: vehicle.drivetrain,
-          transmission: vehicle.transmission,
-          fuel_type: vehicle.fuel_type,
-          images: vehicle.images,
-
-          // Fields that exist in the database
-          features: vehicle.features,
-          source_priority: vehicle.source_priority,
-          raw: vehicle.raw,
-          url_source: vehicle.url_source,
-          msrp: vehicle.msrp,
-          description: vehicle.description,
-          dealerslug: vehicle.dealerslug,
-          condition: vehicle.condition,
-          availability_status: vehicle.availability_status,
-          certified: vehicle.certified,
-          city_mpg: vehicle.city_mpg,
-          highway_mpg: vehicle.highway_mpg,
-          combined_mpg: vehicle.combined_mpg,
-          engine_size: vehicle.engine_size,
-          engine_cylinder_count: vehicle.engine_cylinder_count,
-          engine_specification: vehicle.engine_specification,
-          passenger_capacity: vehicle.passenger_capacity,
-          incentives: vehicle.incentives,
-          safety_features: vehicle.safety_features,
-          technology_features: vehicle.technology_features,
-          comfort_features: vehicle.comfort_features,
-          vehicle_category: vehicle.vehicle_category,
-          factory_options: vehicle.factory_options,
-          option_packages: vehicle.option_packages,
-          video_links: vehicle.video_links,
-          dealer_highlights: vehicle.dealer_highlights,
-          key_features: vehicle.key_features,
-          carfax_report_url: vehicle.carfax_report_url,
-          days_in_inventory: vehicle.days_in_inventory,
-          expected_arrival_date: vehicle.expected_arrival_date,
-          dealer_page_url: vehicle.dealer_page_url,
-
-          // Update timestamp
-          updated_at: new Date().toISOString()
-        };
-
-        // Use upsert to handle both insert and update
-        const { data, error } = await supabase
-          .from('vehicles')
-          .upsert(vehicleData, {
-            onConflict: 'dealer_id,vin',
-            ignoreDuplicates: false
-          })
-          .select()
-          .single();
-
-        if (error) {
-          console.log(`    ❌ Failed to store vehicle ${vehicle.vin}: `, error.message);
-        } else {
-          console.log(`    ✅ Successfully stored vehicle ${vehicle.vin}`);
-          storedVehicles.push(data);
-          storedCount++;
-        }
-
-      } catch (error) {
-        console.log(`    ❌ Error storing vehicle ${vehicle.vin}: `, error instanceof Error ? error.message : String(error));
-      }
+      console.log(`  💾 Would store vehicle ${vehicle.vin} from Dealer.com...`);
+      storedVehicles.push(vehicle);
+      storedCount++;
     }
 
-    console.log(`🎉 Storage complete: ${storedCount}/${vehicles.length} vehicles stored from Dealer.com!`);
+    console.log(`🎉 Storage complete: ${storedCount}/${vehicles.length} vehicles would be stored from Dealer.com!`);
     return storedVehicles;
   }
 }

@@ -5,7 +5,6 @@
       "ES2022"
     ],
     "module": "ESNext",
-    "moduleResolution": "bundler",
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
@@ -23,11 +22,18 @@
       "@/*": [
         "./src/*"
       ]
-    }
+    },
+    "noEmit": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
   "include": [
+    "api/**/*",
     "src/**/*",
-    "api/**/*"
+    ".next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

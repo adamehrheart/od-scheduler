@@ -82,6 +82,8 @@ export interface SchedulerBatchStartedEvent extends BaseEvent {
   data: {
     batchId: string;
     trigger: 'cron' | 'manual' | 'api';
+    correlationId: string;
+    traceId: string;
     summary: {
       totalJobs: number;
       priorityDistribution: {
@@ -91,6 +93,10 @@ export interface SchedulerBatchStartedEvent extends BaseEvent {
       };
       timezoneDistribution: Record<string, number>;
     };
+    timing: {
+      startTime: string;
+      estimatedDuration: number;
+    };
   };
 }
 
@@ -98,6 +104,8 @@ export interface SchedulerBatchCompletedEvent extends BaseEvent {
   type: 'scheduler.batch.completed';
   data: {
     batchId: string;
+    correlationId: string;
+    traceId: string;
     execution: {
       startTime: string;
       endTime: string;
@@ -331,6 +339,8 @@ export class SchedulerEventClient {
   async publishBatchStarted(data: {
     batchId: string;
     trigger: 'cron' | 'manual' | 'api';
+    correlationId: string;
+    traceId: string;
     summary: {
       totalJobs: number;
       priorityDistribution: {
@@ -339,6 +349,10 @@ export class SchedulerEventClient {
         economy: number;
       };
       timezoneDistribution: Record<string, number>;
+    };
+    timing: {
+      startTime: string;
+      estimatedDuration: number;
     };
   }): Promise<string | null> {
     return this.publishEvent<SchedulerBatchStartedEvent>({
@@ -352,6 +366,8 @@ export class SchedulerEventClient {
    */
   async publishBatchCompleted(data: {
     batchId: string;
+    correlationId: string;
+    traceId: string;
     execution: {
       startTime: string;
       endTime: string;

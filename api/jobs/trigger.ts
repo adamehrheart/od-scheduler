@@ -145,8 +145,8 @@ export default async function handler(
           errors: result.results
             .filter(r => !r.success)
             .map(r => ({
-              dealer: r.job.dealer_name,
-              platform: r.job.platform,
+              dealer: r.job?.dealer_name || r.dealer_id,
+              platform: r.platform,
               error: r.error
             }))
         } : null,

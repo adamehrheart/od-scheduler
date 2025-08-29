@@ -11,20 +11,19 @@ services:
     environment:
       - PORT=3003
       - NODE_ENV=development
-      # Required environment variables (dummy values for testing)
-      - OD_SUPABASE_URL=https://dummy.supabase.co
-      - OD_SUPABASE_SERVICE_ROLE=dummy_service_role_key
-      - OD_DATA_API_URL=https://dummy.api.com
-      - OD_SOAP_TRANSFORMER_URL=https://dummy.soap.com
-      - OD_API_KEY_SECRET=dummy_api_key_secret
-      # Optional environment variables
-      - PRIMARY_SOURCE=dealer_com_only
-      - DEALER_COM_ONLY=true
-      - ENABLE_HOMENET=false
-      - ENABLE_SITEMAP=false
-      - ENABLE_SCRAPING=false
-      - ENABLE_URL_SHORTENING=false
-      - DATABASE_URI=${SCHEDULER_DATABASE_URI_LOCAL}
+      # Temporary environment variables for testing
+      - SFTPGO_DB_HOST=localhost
+      - SFTPGO_DB_PORT=5433
+      - SFTPGO_DB_NAME=sftpgo
+      - SFTPGO_DB_USER=sftpgo
+      - SFTPGO_DB_PASSWORD=sftpgo
+      - MAIN_DB_HOST=localhost
+      - MAIN_DB_PORT=5432
+      - MAIN_DB_NAME=postgres
+      - MAIN_DB_USER=postgres
+      - MAIN_DB_PASSWORD=postgres
+      - OD_CMS_URL=http://localhost:3002
+      - REDIS_URL=redis://localhost:6379
     ports:
       - "3003:3003"
     volumes:
@@ -32,10 +31,10 @@ services:
       - ./package.json:/app/package.json:ro
       - ./tsconfig.json:/app/tsconfig.json:ro
       - ./dist:/app/dist
-    command: ["npm", "run", "dev:docker"]
+    command: ["npm", "run", "dev"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3003/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

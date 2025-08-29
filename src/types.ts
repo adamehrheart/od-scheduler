@@ -8,21 +8,20 @@ export interface ScheduledJob {
   id: string
   dealer_id: string
   dealer_name: string
-  platform: 'homenet' | 'dealer.com' | 'scraping' | 'vinsolutions' | 'dealersocket' | 'cobalt'
-  schedule: 'hourly' | 'daily' | 'weekly' | 'custom'
-  cron_expression?: string
-  last_run?: Date
-  next_run?: Date
-  status: 'active' | 'paused' | 'error'
-  environment: 'production' | 'staging' | 'development' | 'testing'
-  config: {
-    api_endpoint?: string
-    credentials?: object
-    selectors?: object
-    rate_limit?: number
-  }
+  platform: 'homenet' | 'dealer.com' | 'web_scraping'
+  schedule: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'ondemand'
+  status: 'active' | 'inactive' | 'paused'
+  environment: 'development' | 'staging' | 'production'
+  config: Record<string, any>
   created_at: Date
   updated_at: Date
+  last_run?: Date
+  next_run?: Date
+  // Enhanced tracing fields
+  correlation_id?: string
+  trace_id?: string
+  span_id?: string
+  parent_span_id?: string
 }
 
 export interface JobExecution {
@@ -30,25 +29,75 @@ export interface JobExecution {
   job_id: string
   dealer_id: string
   platform: string
-  status: 'running' | 'success' | 'failed' | 'skipped'
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
   start_time: Date
   end_time?: Date
-  vehicles_found: number
-  vehicles_processed: number
-  errors?: string[]
-  performance_metrics: {
+  duration_ms?: number
+  vehicles_found?: number
+  vehicles_processed?: number
+  error_message?: string
+  retry_count: number
+  max_retries: number
+  // Enhanced tracing fields
+  correlation_id: string
+  trace_id: string
+  span_id: string
+  parent_span_id?: string
+  // Performance metrics
+  performance_metrics?: {
     duration_ms: number
     api_calls: number
     rate_limits_hit: number
+    avg_response_time: number
+    memory_usage_mb: number
+    cpu_usage_percent: number
   }
-  created_at: Date
+  // Context and metadata
+  context?: {
+    user_agent?: string
+    ip_address?: string
+    trigger_source: 'cron' | 'manual' | 'api' | 'retry'
+    batch_id?: string
+    priority: 'premium' | 'standard' | 'economy'
+    timezone: string
+    local_run_time: string
+  }
 }
 
 export interface JobResult {
-  job: ScheduledJob
-  execution: JobExecution
   success: boolean
-  error?: string
+  job_id: string
+  dealer_id: string
+  platform: string
+  execution: JobExecution
+  data?: {
+    vehicles_found: number
+    vehicles_processed: number
+    vehicles_updated: number
+    vehicles_created: number
+    vehicles_deleted: number
+  }
+  error?: {
+    message: string
+    code?: string
+    retryable: boolean
+    stack_trace?: string
+  }
+  // Enhanced tracing
+  correlation_id: string
+  trace_id: string
+  span_id: string
+  parent_span_id?: string
+  // Timing breakdown
+  timing?: {
+    total_duration_ms: number
+    api_duration_ms: number
+    processing_duration_ms: number
+    database_duration_ms: number
+    event_publishing_duration_ms: number
+  }
+  // Legacy support - allow job object for backward compatibility
+  job?: ScheduledJob
 }
 
 // ============================================================================
