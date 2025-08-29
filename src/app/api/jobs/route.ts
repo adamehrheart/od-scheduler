@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { TraceManager } from '@/utils/tracing'
+import {
+  ScheduledJob,
+  JobExecution,
+  JobResult,
+  RunJobsRequest,
+  RunJobsResponse,
+  ApiResponse
+} from '@adamehrheart/schema'
 
 interface JobListResponse {
   success: boolean

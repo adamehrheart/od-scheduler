@@ -25,7 +25,7 @@
     "docker:dev:down": "docker compose --profile dev down"
   },
   "dependencies": {
-    "@adamehrheart/schema": "^0.1.6",
+    "@adamehrheart/schema": "file:../od-schema",
     "@adamehrheart/utils": "^0.1.0",
     "@types/next": "^8.0.7",
     "@types/pg": "^8.15.5",
